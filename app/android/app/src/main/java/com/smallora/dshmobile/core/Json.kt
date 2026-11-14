@@ -299,6 +299,7 @@ object Json {
         return message.arrOrNull("content")
     }
 
+    /** 仅可见文本块；`reasoning` 块属于思考过程，不能混入正文（否则思考会直接铺在对话里）。 */
     fun contentText(content: JSONArray?): String {
         if (content == null) return ""
         val parts = ArrayList<String>()
@@ -307,10 +308,23 @@ object Json {
             when (block.strOrNull("type")) {
                 "text" -> block.strOrNull("text")?.let { parts.add(it) }
                 "image" -> parts.add("[图片]")
-                else -> block.strOrNull("text")?.let { parts.add(it) }
+                else -> Unit
             }
         }
         return parts.joinToString("\n")
+    }
+
+    /** 思考过程文本（`type == "reasoning"`），由 UI 默认折叠展示。 */
+    fun contentReasoning(content: JSONArray?): String? {
+        if (content == null) return null
+        val parts = ArrayList<String>()
+        for (i in 0 until content.length()) {
+            val block = content.optJSONObject(i) ?: continue
+            if (block.strOrNull("type") == "reasoning") {
+                block.strOrNull("text")?.let { if (it.isNotBlank()) parts.add(it) }
+            }
+        }
+        return parts.joinToString("\n").takeIf { it.isNotBlank() }
     }
 
     fun contentImages(content: JSONArray?): List<String> {

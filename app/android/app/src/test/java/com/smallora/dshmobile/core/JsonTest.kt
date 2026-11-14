@@ -14,6 +14,17 @@ import org.junit.Test
 class JsonTest {
 
     @Test
+    fun `reasoning blocks stay out of visible text`() {
+        val content = org.json.JSONArray()
+            .put(JSONObject().put("type", "reasoning").put("text", "内部思考：先看文件"))
+            .put(JSONObject().put("type", "text").put("text", "这是最终回答"))
+            .put(JSONObject().put("type", "reasoning").put("text", "再想一下"))
+        org.junit.Assert.assertEquals("这是最终回答", Json.contentText(content))
+        org.junit.Assert.assertEquals("内部思考：先看文件\n再想一下", Json.contentReasoning(content))
+        org.junit.Assert.assertNull(Json.contentReasoning(org.json.JSONArray()))
+    }
+
+    @Test
     fun parsesSessionListWithProjections() {
         val item = JSONObject(
             """

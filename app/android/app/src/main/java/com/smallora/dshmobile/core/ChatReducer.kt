@@ -112,7 +112,7 @@ object ChatReducer {
             type == "assistant/message" -> {
                 val content = Json.messageContent(data)
                 var text = Json.contentText(content)
-                var reasoning: String? = null
+                var reasoning: String? = Json.contentReasoning(content)
                 val rawStream = data.arrOrNull("stream")
                 if (rawStream != null) {
                     val textBuilder = StringBuilder()
