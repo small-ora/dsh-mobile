@@ -25,9 +25,9 @@
 | GET | `/api/me` | — | `{device:{id,name,createdAt,lastSeenAt}, host:{version,gatewayVersion}}` |
 | POST | `/api/logout` | — | `{ok:true}`，撤销当前 token |
 | POST | `/api/password` | `{current, next}` | `{ok:true}`；首次改密后 `mustChangePassword=false`。失败限速：6 次/分钟→429（Retry-After）、连续 10 次→423；同设备并发→409 |
-| GET | `/api/devices` | — | `{items:[{id,name,platform,createdAt,lastSeenAt}]}` |
+| GET | `/api/devices` | — | `{items:[{id,name,platform,createdAt,lastSeenAt,online}]}`（online = 60s 内活跃，按 lastSeen 倒序） |
 | DELETE | `/api/devices/:id` | — | `{ok:true}` |
-| GET | `/health` | — | **无需鉴权** `{ok, service:'dsh-mobile', version, upstream:{ok}, mustChangePassword}`（无主机/会话信息） |
+| GET | `/health` | — | **无需鉴权** `{ok, service:'dsh-mobile', version, upstream:{ok}, mustChangePassword, proxyTrust:{mode,trustedCidrCount}}`；`upstream.ok = 上游最近成功 || 流中心 WS 已连接`（无主机/会话信息） |
 
 ### 2.2 RPC 代理（现代协议）
 
@@ -369,3 +369,67 @@ class AppNavState { var route: Route; fun go(route: Route); fun back() }
 ## 8. 错误码（网关自有）
 
 `invalid-password`、`rate-limited`、`locked`、`unauthorized`、`forbidden-path`、`method-not-allowed`、`upstream-unavailable`、`stream-not-found`、`body-too-large`、`conflict`、`password-change-required`。
+
+
+## 9. 契约变更记录（v0.1.2 → v0.1.9，as-built）
+
+### 9.1 新增接口
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET/HEAD /api/attachment?sessionId=&attachmentId=<64hex>` | 会话内图片/文件附件字节（Bearer）。网关用上游 Cookie 代理 DSH 插件 `/mobile/api/session-file`，流式透传 `content-type/content-length`，不转发客户端凭据；401/404/503/400 语义 |
+| `GET /api/admin/devices` | 插件面板用（`x-admin-token`）：设备列表（含 online） |
+| `POST /api/admin/devices/revoke {id}` | 撤销设备并关闭其流/WS（4401） |
+| `GET /api/admin/overview` | 面板状态：`streamHub{connected,streamCount,lastError}`、设备计数、上游状态 |
+| `GET/HEAD /mobile/api/session-file` | 插件路由，供网关代理附件（同源鉴权） |
+
+### 9.2 RPC 白名单新增
+
+`commands/list`、`commands/execute`、`permissionPresets/catalog`、`session/projections`、`goals/*`、`workspace/archiveSession|unarchiveSession|create`、`session/updateQueue`（均已在上文 §4 汇总）。
+
+关键参数：
+- `commands/list {agentId}` → value 为**数组** `[{definitionId,name,description,input:{hint?}}]`
+- `commands/execute {agentId, line, submittedAttachments:[]}`
+- `permissionPresets/catalog {}` → `{options:[{value,name}],defaultPreset}`
+- `session/projections {request:{sessionId}}` → `values.inbox.next-turn/next-step`（排队消息）、`values.permissions.currentValue`、`values.workingDirectory`
+- `session/updateQueue {request:{sessionId,itemId,action:{kind:'steer'|'remove'|'edit'}}}`（排队消息插队/删除）
+- 参数命名：仅 `session/list` 用 `{_request:{}}`；其余 `session/*`、`workspace/*` 用 `{request:{…}}`；`session/prompt` 必须带客户端 UUID `requestId`；`goals/get {agentId}`、`goals/pause|resume|complete|clear {agentId,ref:{id,revision}}`
+
+### 9.3 App 数据模型（core，最终形状）
+
+```kotlin
+data class ChatUiState(
+  val sessionId: String, val title: String, val running: Boolean,
+  val items: List<ChatItem>, val pending: List<PendingRequest>,
+  val goal: Goal?, val todos: List<Todo>, val selection: ModelSelection?,
+  val hasMore: Boolean, val loadingOlder: Boolean, val error: String?,
+  val queued: List<QueuedMessage>,          // 排队消息（projections.inbox）
+  val permission: PermissionState?,         // current + options
+  val commands: List<CommandInfo>,          // 斜杠指令
+  val cwd: String?,                         // 会话工作目录（Markdown 相对图片解析）
+)
+
+sealed interface ImageRef {
+  data class DataUrl(val url: String) : ImageRef
+  data class Attachment(val sessionId: String, val attachmentId: String,
+                        val mediaType: String?, val name: String?) : ImageRef
+}
+
+sealed interface MarkdownImageSource {       // resolveMarkdownImageSrc(src, cwd) 产出
+  data class Remote(val url: String) : MarkdownImageSource
+  data class DataUrl(val url: String) : MarkdownImageSource
+  data class WorkspacePath(val path: String) : MarkdownImageSource
+}
+
+data class QueuedMessage(val key: String, val text: String,
+                         val images: List<ImageRef>, val id: String?)  // id 用于插队/删除
+data class PermissionOption(val value: String, val name: String)
+data class PermissionState(val current: String?, val options: List<PermissionOption>)
+data class CommandInfo(val name: String, val description: String, val hint: String?)
+```
+
+Repository 新增：`fetchAttachment(sessionId, attachmentId): Pair<String,ByteArray>`、`fetchFile(path): Pair<String,ByteArray>`、`steerQueued(sessionId,itemId): Boolean`、`removeQueued(sessionId,itemId): Boolean`、`runCommand(sessionId,line): Boolean`、`refreshQueue/refreshPermission`。
+
+### 9.4 错误码补充
+
+`password-change-required`（403）、`attachment-not-found`（404）、`attachment-unsupported`（503）、`invalid-reference`（400）、`device-not-found`（404）。
