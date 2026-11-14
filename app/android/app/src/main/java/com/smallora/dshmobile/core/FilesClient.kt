@@ -34,11 +34,11 @@ class FilesClient(private val api: ApiClient) {
     }
 
     /** 文本/图片预览（≤1MiB 由网关保证；此处再限制 4MiB 防内存）。 */
-    suspend fun preview(path: String): Pair<String, ByteArray>? {
+    suspend fun preview(path: String): Pair<String, ByteArray>? = withContext(Dispatchers.IO) {
         val response = api.download(path)
-        return response.use { resp ->
-            if (!resp.isSuccessful) return@use null
-            val bytes = resp.body?.byteStream()?.readNBytes(4 * 1024 * 1024) ?: return@use null
+        response.use { resp ->
+            if (!resp.isSuccessful) return@withContext null
+            val bytes = resp.body?.byteStream()?.readNBytes(4 * 1024 * 1024) ?: return@withContext null
             val mime = resp.header("Content-Type")?.substringBefore(';') ?: mimeOf(path)
             mime to bytes
         }

@@ -278,12 +278,15 @@ open class ApiClient(
             .post(bytes.toRequestBody(rawMedia))
             .header("x-content-sha256", sha256Hex(bytes))
         token?.let { builder.header("Authorization", "Bearer $it") }
-        val resp = withContext(Dispatchers.IO) {
-            streamClient.newCall(builder.build()).execute()
-        }
-        return resp.use {
-            if (!it.isSuccessful) throw ApiException("upload-failed", "上传失败: HTTP ${it.code}", it.code)
-            Json.parseObject(it.body?.string()) ?: JSONObject()
+        try {
+            return withContext(Dispatchers.IO) {
+                streamClient.newCall(builder.build()).execute().use { it ->
+                    if (!it.isSuccessful) throw ApiException("upload-failed", "上传失败: HTTP ${it.code}", it.code)
+                    Json.parseObject(it.body?.string()) ?: JSONObject()
+                }
+            }
+        } catch (e: IOException) {
+            throw ApiException("network-error", e.message ?: "网络错误")
         }
     }
 
@@ -307,17 +310,20 @@ open class ApiClient(
         )
         val builder = Request.Builder().url(url).post(body)
         token?.let { builder.header("Authorization", "Bearer $it") }
-        val resp = withContext(Dispatchers.IO) {
-            streamClient.newCall(builder.build()).execute()
-        }
-        return resp.use {
-            val text = it.body?.string().orEmpty()
-            val json = Json.parseObject(text) ?: JSONObject()
-            if (it.code == 401) {
-                throw UnauthorizedException(json.strOrNull("error") ?: "登录已过期，请重新登录")
+        try {
+            return withContext(Dispatchers.IO) {
+                streamClient.newCall(builder.build()).execute().use { it ->
+                    val text = it.body?.string().orEmpty()
+                    val json = Json.parseObject(text) ?: JSONObject()
+                    if (it.code == 401) {
+                        throw UnauthorizedException(json.strOrNull("error") ?: "登录已过期，请重新登录")
+                    }
+                    if (!it.isSuccessful) throw httpError(it.code, json)
+                    json
+                }
             }
-            if (!it.isSuccessful) throw httpError(it.code, json)
-            json
+        } catch (e: IOException) {
+            throw ApiException("network-error", e.message ?: "网络错误")
         }
     }
 
@@ -393,21 +399,24 @@ open class ApiClient(
             builder.header("Authorization", "Bearer $current")
         }
         val request = builder.build()
-        val response = try {
-            withContext(Dispatchers.IO) { client.newCall(request).execute() }
+        // 关键：响应体读取也是网络 I/O，必须在 IO 线程完成；
+        // 否则大响应（如 session/list）会触发 NetworkOnMainThreadException。
+        try {
+            return withContext(Dispatchers.IO) {
+                client.newCall(request).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    val json = Json.parseObject(text) ?: JSONObject()
+                    if (resp.code == 401) {
+                        throw UnauthorizedException(json.strOrNull("error") ?: "登录已过期，请重新登录")
+                    }
+                    if (!resp.isSuccessful) {
+                        throw httpError(resp.code, json)
+                    }
+                    json
+                }
+            }
         } catch (e: IOException) {
             throw ApiException("network-error", e.message ?: "网络错误")
-        }
-        response.use { resp ->
-            val text = resp.body?.string().orEmpty()
-            val json = Json.parseObject(text) ?: JSONObject()
-            if (resp.code == 401) {
-                throw UnauthorizedException(json.strOrNull("error") ?: "登录已过期，请重新登录")
-            }
-            if (!resp.isSuccessful) {
-                throw httpError(resp.code, json)
-            }
-            return json
         }
     }
 
