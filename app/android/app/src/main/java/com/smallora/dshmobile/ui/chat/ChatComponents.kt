@@ -2,8 +2,6 @@ package com.smallora.dshmobile.ui.chat
 
 import android.content.ClipData
 import android.content.Context
-import android.graphics.BitmapFactory
-import android.util.Base64
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -83,17 +81,23 @@ import kotlinx.coroutines.delay
 internal fun ChatItemRow(
     item: ChatItem,
     thinkSeconds: Int?,
+    fetchAttachment: suspend (String, String) -> Pair<String, ByteArray>?,
+    onImagePreview: (ImageBitmap) -> Unit,
 ) {
     when (item) {
-        is ChatItem.User -> UserBubble(item)
-        is ChatItem.Assistant -> AssistantMessage(item, thinkSeconds)
+        is ChatItem.User -> UserBubble(item, fetchAttachment, onImagePreview)
+        is ChatItem.Assistant -> AssistantMessage(item, thinkSeconds, fetchAttachment, onImagePreview)
         is ChatItem.Tool -> ToolRow(item)
         is ChatItem.Notice -> NoticeLine(item)
     }
 }
 
 @Composable
-private fun UserBubble(item: ChatItem.User) {
+private fun UserBubble(
+    item: ChatItem.User,
+    fetchAttachment: suspend (String, String) -> Pair<String, ByteArray>?,
+    onImagePreview: (ImageBitmap) -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
     Row(
@@ -109,15 +113,11 @@ private fun UserBubble(item: ChatItem.User) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (item.images.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    item.images.take(3).forEach { image ->
-                        DataUrlImage(
-                            dataUrl = image,
-                            modifier = Modifier.size(120.dp),
-                            corner = 12.dp,
-                        )
-                    }
-                }
+                ChatImages(
+                    images = item.images,
+                    fetchAttachment = fetchAttachment,
+                    onPreview = onImagePreview,
+                )
             }
             if (item.text.isNotBlank()) {
                 Text(
@@ -131,7 +131,12 @@ private fun UserBubble(item: ChatItem.User) {
 }
 
 @Composable
-private fun AssistantMessage(item: ChatItem.Assistant, thinkSeconds: Int?) {
+private fun AssistantMessage(
+    item: ChatItem.Assistant,
+    thinkSeconds: Int?,
+    fetchAttachment: suspend (String, String) -> Pair<String, ByteArray>?,
+    onImagePreview: (ImageBitmap) -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
     Column(
@@ -145,6 +150,14 @@ private fun AssistantMessage(item: ChatItem.Assistant, thinkSeconds: Int?) {
             MarkdownBody(text = item.text, streaming = item.streaming)
         } else if (item.streaming) {
             Text("▌", style = typography.bodyLarge, color = colors.primary)
+        }
+        // 助手消息图片：Markdown 正文之后
+        if (item.images.isNotEmpty()) {
+            ChatImages(
+                images = item.images,
+                fetchAttachment = fetchAttachment,
+                onPreview = onImagePreview,
+            )
         }
         if (item.interrupted) {
             Text("已停止", style = typography.labelMedium, color = colors.onSurfaceVariant)
@@ -266,6 +279,8 @@ private fun NoticeLine(item: ChatItem.Notice, horizontalPadding: Dp = 16.dp) {
 internal fun ProcessGroupRow(
     group: DisplayItem.Group,
     thinkSeconds: Map<String, Int>,
+    fetchAttachment: suspend (String, String) -> Pair<String, ByteArray>?,
+    onImagePreview: (ImageBitmap) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
@@ -307,7 +322,12 @@ internal fun ProcessGroupRow(
                     when (item) {
                         is ChatItem.Tool -> ToolRow(item, horizontalPadding = 0.dp, compact = true)
                         is ChatItem.Notice -> NoticeLine(item, horizontalPadding = 0.dp)
-                        is ChatItem.Assistant -> GroupAssistant(item, thinkSeconds[item.key])
+                        is ChatItem.Assistant -> GroupAssistant(
+                            item = item,
+                            thinkSeconds = thinkSeconds[item.key],
+                            fetchAttachment = fetchAttachment,
+                            onImagePreview = onImagePreview,
+                        )
                         is ChatItem.User -> Unit // 分段后不会出现
                     }
                 }
@@ -317,7 +337,12 @@ internal fun ProcessGroupRow(
 }
 
 @Composable
-private fun GroupAssistant(item: ChatItem.Assistant, thinkSeconds: Int?) {
+private fun GroupAssistant(
+    item: ChatItem.Assistant,
+    thinkSeconds: Int?,
+    fetchAttachment: suspend (String, String) -> Pair<String, ByteArray>?,
+    onImagePreview: (ImageBitmap) -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -328,6 +353,13 @@ private fun GroupAssistant(item: ChatItem.Assistant, thinkSeconds: Int?) {
             MarkdownBody(text = item.text, streaming = item.streaming, compact = true)
         } else if (item.streaming) {
             Text("▌", style = typography.bodySmall, color = colors.primary)
+        }
+        if (item.images.isNotEmpty()) {
+            ChatImages(
+                images = item.images,
+                fetchAttachment = fetchAttachment,
+                onPreview = onImagePreview,
+            )
         }
         if (item.interrupted) {
             Text("已停止", style = typography.labelSmall, color = colors.onSurfaceVariant)
@@ -551,15 +583,6 @@ internal fun DataUrlImage(dataUrl: String, modifier: Modifier = Modifier, corner
     }
 }
 
-private fun decodeDataUrl(dataUrl: String): ImageBitmap? {
-    val marker = "base64,"
-    val index = dataUrl.indexOf(marker)
-    if (index < 0) return null
-    return runCatching {
-        val bytes = Base64.decode(dataUrl.substring(index + marker.length), Base64.DEFAULT)
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-    }.getOrNull()
-}
 
 // ------------------------------------------------------------------ 待处理：审批 / 提问
 

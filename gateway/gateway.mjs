@@ -11,6 +11,8 @@
  *  - 不做 Cloudflare/cloudflared 管理；接受任意 Host 与 X-Forwarded-*（供用户自建通道反代）。
  */
 import http from 'node:http'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { pathToFileURL } from 'node:url'
 import { AuthService, timingSafeEqualString } from './auth.mjs'
 import {
@@ -313,6 +315,92 @@ export async function createGateway(options = {}) {
     }
   }
 
+  /**
+   * GET/HEAD /api/attachment?sessionId=&attachmentId= → 代理 DSH 插件 /mobile/api/session-file。
+   *
+   * 图片/文件块是 attachment 引用，DSH 的 session/attachment RPC 经 HTTP 是 multipart，
+   * 普通 JSON 代理拿不到字节；这里用上游 Cookie 请求同进程插件路由并把字节流原样透传。
+   * 只透传上游的 content-type/content-length，不把客户端的 Authorization/Cookie 发给上游。
+   */
+  async function proxyAttachment(req, res, url) {
+    const sessionId = url.searchParams.get('sessionId') || ''
+    const attachmentId = url.searchParams.get('attachmentId') || ''
+    if (!sessionId || sessionId.length > 200 || /[\u0000-\u001f]/.test(sessionId) || !/^[a-f0-9]{64}$/.test(attachmentId)) {
+      return sendJson(res, 400, { error: 'invalid-reference' })
+    }
+    const cookie = upstream.cookie()
+    if (!cookie) return sendJson(res, 502, { error: 'upstream-unavailable' })
+    const base = upstream.baseUrl()
+    const target =
+      `${base}/mobile/api/session-file?sessionId=${encodeURIComponent(sessionId)}` +
+      `&attachmentId=${encodeURIComponent(attachmentId)}`
+
+    const controller = new AbortController()
+    const onClose = () => controller.abort()
+    res.once('close', onClose)
+    // 只限制“拿到响应头”的时间；拿到后按客户端消费速度流式传输。
+    const headerTimer = setTimeout(() => controller.abort(new Error('attachment-timeout')), 20_000)
+    headerTimer.unref?.()
+    let response
+    try {
+      response = await fetch(target, {
+        method: req.method === 'HEAD' ? 'HEAD' : 'GET',
+        headers: { cookie, accept: '*/*' },
+        redirect: 'manual',
+        signal: controller.signal,
+      })
+    } catch (err) {
+      clearTimeout(headerTimer)
+      res.off('close', onClose)
+      logger.warn('attachment proxy failed', { code: err?.code || 'network' })
+      return sendJson(res, 502, { error: 'upstream-unavailable' })
+    }
+    clearTimeout(headerTimer)
+
+    if (response.status !== 200) {
+      try {
+        await response.arrayBuffer()
+      } catch {
+        /* drain */
+      }
+      res.off('close', onClose)
+      if (response.status === 400) return sendJson(res, 400, { error: 'invalid-reference' })
+      if (response.status === 404) return sendJson(res, 404, { error: 'attachment-not-found' })
+      if (response.status === 503) return sendJson(res, 503, { error: 'attachment-unsupported' })
+      return sendJson(res, 502, { error: 'attachment-unavailable' })
+    }
+
+    const headers = { 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' }
+    const contentType = response.headers.get('content-type')
+    if (contentType) headers['content-type'] = contentType
+    const contentLength = response.headers.get('content-length')
+    if (contentLength) headers['content-length'] = contentLength
+    res.writeHead(200, headers)
+    if (req.method === 'HEAD' || !response.body) {
+      try {
+        await response.body?.cancel?.()
+      } catch {
+        /* ignore */
+      }
+      res.off('close', onClose)
+      return res.end()
+    }
+    try {
+      await pipeline(Readable.fromWeb(response.body), res)
+    } catch (err) {
+      // 客户端中断/上游流失败：连接已不可用，记录类型即可。
+      logger.warn('attachment stream interrupted', { code: err?.code || 'stream-error' })
+      try {
+        res.destroy()
+      } catch {
+        /* ignore */
+      }
+    } finally {
+      res.off('close', onClose)
+    }
+    return undefined
+  }
+
   async function handleHttp(req, res) {
     let url
     try {
@@ -528,6 +616,13 @@ export async function createGateway(options = {}) {
       const session = requireReadyDevice(req, res)
       if (!session) return
       return files.handlePreview(req, res, url)
+    }
+
+    // ---- 附件字节（图片/文件引用） ----
+    if (pathname === '/api/attachment' && (method === 'GET' || method === 'HEAD')) {
+      const session = requireReadyDevice(req, res)
+      if (!session) return
+      return proxyAttachment(req, res, url)
     }
 
     // ---- 插件侧管理接口（x-admin-token，不暴露给 App） ----

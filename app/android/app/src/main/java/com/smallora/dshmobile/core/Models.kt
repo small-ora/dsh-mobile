@@ -102,13 +102,30 @@ data class PermissionState(val current: String?, val options: List<PermissionOpt
 /** 斜杠指令（commands/list）。 */
 data class CommandInfo(val name: String, val description: String, val hint: String?)
 
+/**
+ * 聊天图片引用（真实 DSH 结构里图片不是内联 data URL，而是附件引用）：
+ * - [DataUrl]：内联 base64 / data URL（旧数据/本地图片）；
+ * - [Attachment]：网关附件（attachmentId 已去 `sha256:` 前缀），需调用
+ *   [ApiClient.fetchAttachment] 按 sessionId 拉字节。
+ */
+sealed interface ImageRef {
+    data class DataUrl(val url: String) : ImageRef
+
+    data class Attachment(
+        val sessionId: String,
+        val attachmentId: String,
+        val mediaType: String?,
+        val name: String?,
+    ) : ImageRef
+}
+
 sealed interface ChatItem {
     val key: String
 
     data class User(
         override val key: String,
         val text: String,
-        val images: List<String>,
+        val images: List<ImageRef>,
     ) : ChatItem
 
     data class Assistant(
@@ -117,6 +134,7 @@ sealed interface ChatItem {
         val reasoning: String?,
         val streaming: Boolean,
         val interrupted: Boolean,
+        val images: List<ImageRef> = emptyList(),
     ) : ChatItem
 
     data class Tool(

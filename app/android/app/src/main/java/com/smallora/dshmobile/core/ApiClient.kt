@@ -336,6 +336,31 @@ open class ApiClient(
         }
     }
 
+    /**
+     * 拉取图片附件字节（GET /api/attachment?sessionId=&attachmentId=，Bearer）。
+     * 返回 (mediaType, bytes)；401 → UnauthorizedException，其余非 2xx → ApiException。
+     * 在 IO 线程读取 body（调用方无需再切线程）。
+     */
+    open suspend fun fetchAttachment(sessionId: String, attachmentId: String): Pair<String, ByteArray> {
+        val url = directUrl(
+            "/api/attachment",
+            mapOf("sessionId" to sessionId, "attachmentId" to attachmentId),
+        )
+        val builder = Request.Builder().url(url).get()
+        token?.let { builder.header("Authorization", "Bearer $it") }
+        val resp = executeStream(builder.build())
+        return resp.use {
+            val bytes = it.body?.bytes() ?: ByteArray(0)
+            if (it.code == 401) throw UnauthorizedException("登录已过期，请重新登录")
+            if (!it.isSuccessful) {
+                throw httpError(it.code, Json.parseObject(bytes.toString(Charsets.UTF_8)) ?: JSONObject())
+            }
+            val mediaType = it.header("Content-Type")?.substringBefore(';')?.trim()
+                ?.takeIf { type -> type.isNotEmpty() } ?: "application/octet-stream"
+            mediaType to bytes
+        }
+    }
+
     // ---- 待处理 / 审批回答 ----
 
     suspend fun pending(): List<PendingRequest> {
@@ -369,6 +394,10 @@ open class ApiClient(
     suspend fun deleteJson(path: String): JSONObject = call("DELETE", path)
 
     // ---- 内部实现 ----
+
+    /** 可测试 seam：执行单次流式 GET 请求（fetchAttachment 用；测试可覆盖以返回假响应）。 */
+    protected open suspend fun executeStream(request: Request): okhttp3.Response =
+        withContext(Dispatchers.IO) { streamClient.newCall(request).execute() }
 
     private fun parseHost(host: JSONObject?): HostInfo {
         return HostInfo(

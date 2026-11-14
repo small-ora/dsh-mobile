@@ -99,8 +99,9 @@ object ChatReducer {
                     state
                 } else {
                     val content = Json.messageContent(data)
-                    val text = Json.contentText(content)
-                    val images = Json.contentImages(content)
+                    // 图片单独渲染为图片项，气泡文本只取 text 块（不插 "[图片]" 占位）
+                    val text = Json.contentPlainText(content)
+                    val images = Json.parseImageRefs(content, state.sessionId)
                     if (text.isBlank() && images.isEmpty()) {
                         state
                     } else {
@@ -111,7 +112,8 @@ object ChatReducer {
 
             type == "assistant/message" -> {
                 val content = Json.messageContent(data)
-                var text = Json.contentText(content)
+                var text = Json.contentPlainText(content)
+                val images = Json.parseImageRefs(content, state.sessionId)
                 var reasoning: String? = Json.contentReasoning(content)
                 val rawStream = data.arrOrNull("stream")
                 if (rawStream != null) {
@@ -134,6 +136,7 @@ object ChatReducer {
                     reasoning = reasoning,
                     streaming = false,
                     interrupted = data.boolOr("interrupted", false),
+                    images = images,
                 )
                 state.removeStreaming().withItem(finalItem)
             }

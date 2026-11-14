@@ -45,6 +45,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -87,6 +88,13 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
     val listState = rememberLazyListState()
 
     var showModels by remember { mutableStateOf(false) }
+    var previewImage by remember { mutableStateOf<ImageBitmap?>(null) }
+    // 附件图片拉取（失败返回 null，由图片组件显示占位）
+    val fetchAttachment: suspend (String, String) -> Pair<String, ByteArray>? = remember(container) {
+        { sessionId, attachmentId ->
+            runCatching { container.api.fetchAttachment(sessionId, attachmentId) }.getOrNull()
+        }
+    }
     var showPermissions by remember { mutableStateOf(false) }
     var showFunctions by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
@@ -240,11 +248,15 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
                             is DisplayItem.Single -> ChatItemRow(
                                 item = display.item,
                                 thinkSeconds = thinkSeconds[display.item.key],
+                                fetchAttachment = fetchAttachment,
+                                onImagePreview = { previewImage = it },
                             )
 
                             is DisplayItem.Group -> ProcessGroupRow(
                                 group = display,
                                 thinkSeconds = thinkSeconds,
+                                fetchAttachment = fetchAttachment,
+                                onImagePreview = { previewImage = it },
                             )
                         }
                     }
@@ -377,6 +389,10 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
             },
             onDismiss = { showPermissions = false },
         )
+    }
+
+    previewImage?.let { bitmap ->
+        FullScreenImagePreview(bitmap = bitmap, onDismiss = { previewImage = null })
     }
 }
 

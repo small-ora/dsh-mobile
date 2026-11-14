@@ -398,6 +398,45 @@ object Json {
         return parts.joinToString("\n").takeIf { it.isNotBlank() }
     }
 
+    /**
+     * 解析图片块为 ImageRef：
+     * - `{type:'image', attachment:{attachmentId:'sha256:<64hex>', mediaType, name}}` → Attachment（去 sha256: 前缀）；
+     * - `{type:'image', data:'...', mediaType}` / 内联 data URL → DataUrl；
+     * - 缺 id / 缺 data / 非 image 块 → 跳过（宽松解析，不抛异常）。
+     */
+    fun parseImageRefs(content: JSONArray?, sessionId: String): List<ImageRef> {
+        if (content == null) return emptyList()
+        val out = ArrayList<ImageRef>()
+        for (i in 0 until content.length()) {
+            val block = content.optJSONObject(i) ?: continue
+            if (block.strOrNull("type") != "image") continue
+            parseImageRef(block, sessionId)?.let { out.add(it) }
+        }
+        return out
+    }
+
+    private fun parseImageRef(block: JSONObject, sessionId: String): ImageRef? {
+        val attachment = block.objOrNull("attachment")
+        if (attachment != null) {
+            val rawId = attachment.strOrNull("attachmentId")
+                ?: attachment.strOrNull("id")
+                ?: block.strOrNull("attachmentId")
+                ?: return null
+            val attachmentId = rawId.trim().removePrefix("sha256:").trim()
+            if (attachmentId.isEmpty()) return null
+            return ImageRef.Attachment(
+                sessionId = sessionId,
+                attachmentId = attachmentId,
+                mediaType = attachment.strOrNull("mediaType") ?: block.strOrNull("mediaType"),
+                name = attachment.strOrNull("name"),
+            )
+        }
+        val data = block.strOrNull("data") ?: return null
+        if (data.startsWith("data:")) return ImageRef.DataUrl(data)
+        val mediaType = block.strOrNull("mediaType") ?: "image/jpeg"
+        return ImageRef.DataUrl("data:$mediaType;base64,$data")
+    }
+
     /** 仅拼接 text 块（图片由调用方单独展示，不插入 "[图片]" 占位）。 */
     fun contentPlainText(content: JSONArray?): String {
         if (content == null) return ""

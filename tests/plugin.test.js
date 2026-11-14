@@ -34,27 +34,36 @@ async function getFreePort() {
 }
 
 function createRes() {
-  const res = {
-    statusCode: null,
-    headers: {},
-    body: '',
-    headersSent: false,
-    writableEnded: false,
-    setHeader(name, value) {
-      this.headers[String(name).toLowerCase()] = value
-    },
-    getHeader(name) {
-      return this.headers[String(name).toLowerCase()]
-    },
-    writeHead(status, headers = {}) {
-      this.statusCode = status
-      this.headersSent = true
-      for (const [key, value] of Object.entries(headers)) this.headers[key.toLowerCase()] = value
-    },
-    end(chunk) {
-      if (chunk) this.body += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)
-      this.writableEnded = true
-    },
+  const res = new EventEmitter()
+  res.statusCode = null
+  res.headers = {}
+  res.body = ''
+  res.headersSent = false
+  res.writableEnded = false
+  res.destroyed = false
+  res.setHeader = function (name, value) {
+    this.headers[String(name).toLowerCase()] = value
+  }
+  res.getHeader = function (name) {
+    return this.headers[String(name).toLowerCase()]
+  }
+  res.writeHead = function (status, headers = {}) {
+    this.statusCode = status
+    this.headersSent = true
+    for (const [key, value] of Object.entries(headers)) this.headers[key.toLowerCase()] = value
+  }
+  res.write = function (chunk) {
+    if (chunk) this.body += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)
+    return true
+  }
+  res.end = function (chunk) {
+    if (chunk) this.body += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)
+    this.writableEnded = true
+    this.emit('finish')
+  }
+  res.destroy = function () {
+    this.destroyed = true
+    this.emit('close')
   }
   return res
 }
@@ -106,8 +115,21 @@ test('插件：Cookie 交换、spawn 网关、/mobile 面板与 /mobile/api/stat
   const routes = []
   const effects = []
   const rejectStatus = { value: undefined }
+  // session-file 依赖的 in-process 服务假实现（可逐用例替换）。
+  const services = {
+    sessionController: { inspect: async () => ({ events: [] }) },
+    attachments: {
+      readImage: async (ref) => ({ ref, data: Buffer.from('PNGDATA') }),
+      readFileStream: (ref) => (async function* () {
+        yield Buffer.from('FILEDATA')
+      })(),
+    },
+  }
   const ctx = {
     logger: { info() {}, warn() {}, error() {} },
+    get(name) {
+      return services[name]
+    },
     effect(fn) {
       const dispose = fn()
       effects.push(dispose)
@@ -261,13 +283,86 @@ test('插件：Cookie 交换、spawn 网关、/mobile 面板与 /mobile/api/stat
   )
   assert.equal(revokeUnknown.statusCode, 404)
 
-  // 6) DSH 鉴权失败 → 401
+  // 6) 图片/文件附件读取：/mobile/api/session-file（200 流 / HEAD / 404 / 503 / 参数非法）
+  const imageId = 'a'.repeat(64)
+  const fileId = 'c'.repeat(64)
+  const imageBytes = Buffer.from('PNGDATA')
+  services.sessionController.inspect = async () => ({
+    events: [
+      { type: 'turn/start', data: {} },
+      {
+        type: 'user/message',
+        data: {
+          content: [
+            { type: 'text', text: '看图' },
+            {
+              type: 'image',
+              attachment: { attachmentId: `sha256:${imageId}`, mediaType: 'image/png', bytes: imageBytes.length, width: 1, height: 1, name: 'x.png' },
+            },
+            { type: 'file', attachment: { attachmentId: `sha256:${fileId}`, name: 'a.txt', bytes: 8 } },
+          ],
+        },
+      },
+    ],
+  })
+  services.attachments = {
+    readImage: async (ref) => ({ ref, data: imageBytes }),
+    readFileStream: (ref) => (async function* () {
+      yield Buffer.from('FILEDATA')
+    })(),
+  }
+  const imagePath = `/mobile/api/session-file?sessionId=s1&attachmentId=${imageId}`
+  const imageRes = await invoke(routes[0].handler, createReq({ url: imagePath }))
+  assert.equal(imageRes.statusCode, 200)
+  assert.equal(imageRes.headers['content-type'], 'image/png')
+  assert.equal(imageRes.headers['content-length'], String(imageBytes.length))
+  assert.equal(imageRes.headers['cache-control'], 'private, no-store')
+  assert.equal(imageRes.headers['x-content-type-options'], 'nosniff')
+  assert.equal(imageRes.body, 'PNGDATA')
+  const imageHead = await invoke(routes[0].handler, createReq({ method: 'HEAD', url: imagePath }))
+  assert.equal(imageHead.statusCode, 200)
+  assert.equal(imageHead.body, '')
+  assert.equal(imageHead.headers['content-length'], String(imageBytes.length))
+  // file 引用走 readFileStream 流式
+  const fileRes = await invoke(routes[0].handler, createReq({ url: `/mobile/api/session-file?sessionId=s1&attachmentId=${fileId}` }))
+  assert.equal(fileRes.statusCode, 200)
+  assert.equal(fileRes.headers['content-type'], 'application/octet-stream')
+  assert.equal(fileRes.headers['content-length'], '8')
+  assert.equal(fileRes.body, 'FILEDATA')
+  // 404：会话里没有该引用
+  const missing = await invoke(routes[0].handler, createReq({ url: `/mobile/api/session-file?sessionId=s1&attachmentId=${'b'.repeat(64)}` }))
+  assert.equal(missing.statusCode, 404)
+  assert.equal(JSON.parse(missing.body).code, 'file-not-in-session')
+  // 400：非法/多余参数
+  for (const badPath of [
+    '/mobile/api/session-file?sessionId=s1&attachmentId=xyz',
+    '/mobile/api/session-file?attachmentId=' + imageId,
+    `/mobile/api/session-file?sessionId=s1&attachmentId=${imageId}&foo=1`,
+    `/mobile/api/session-file?sessionId=${'x'.repeat(201)}&attachmentId=${imageId}`,
+  ]) {
+    const bad = await invoke(routes[0].handler, createReq({ url: badPath }))
+    assert.equal(bad.statusCode, 400, badPath)
+    assert.equal(JSON.parse(bad.body).code, 'invalid-reference')
+  }
+  // 503：附件服务缺失
+  services.attachments = null
+  const unsupported = await invoke(routes[0].handler, createReq({ url: imagePath }))
+  assert.equal(unsupported.statusCode, 503)
+  assert.equal(JSON.parse(unsupported.body).code, 'files-unsupported')
+  services.attachments = {
+    readImage: async (ref) => ({ ref, data: imageBytes }),
+    readFileStream: (ref) => (async function* () {
+      yield Buffer.from('FILEDATA')
+    })(),
+  }
+
+  // 7) DSH 鉴权失败 → 401
   rejectStatus.value = 401
   const denied = await invoke(routes[0].handler, createReq({ url: '/mobile/api/status' }))
   assert.equal(denied.statusCode, 401)
   rejectStatus.value = undefined
 
-  // 7) 卸载：网关子进程停止（端口不再可访问）
+  // 8) 卸载：网关子进程停止（端口不再可访问）
   disposeAll()
   await waitFor(async () => {
     try {

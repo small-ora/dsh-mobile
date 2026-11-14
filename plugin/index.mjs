@@ -21,8 +21,8 @@ export const name = 'dsh-mobile-plugin'
 export const inject = ['webServer', 'connection']
 
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url))
-const PLUGIN_VERSION = '0.1.5'
-const GATEWAY_VERSION = '0.1.5'
+const PLUGIN_VERSION = '0.1.8'
+const GATEWAY_VERSION = '0.1.8'
 const DEFAULT_GATEWAY_PORT = 8790
 const MAX_LOG_LINES = 200
 const RESTART_DELAYS = [1000, 2000, 5000, 15_000, 30_000]
@@ -158,6 +158,149 @@ function readBodyJson(req, limit = 64 * 1024) {
       }
     })
   })
+}
+
+/** 附件引用 id：sha256 的 64 位小写 hex。 */
+const ATTACHMENT_ID_RE = /^[a-f0-9]{64}$/
+
+function sendBinaryError(res, status, code) {
+  if (res.headersSent || res.writableEnded) return
+  const body = JSON.stringify({ ok: false, code })
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': Buffer.byteLength(body),
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+  })
+  res.end(body)
+}
+
+/**
+ * 读取会话内附件字节（图片/文件）并流式返回给 App。
+ *
+ * 背景（task-16）：消息里的图片/文件是 `{type:'image'|'file', attachment:{attachmentId:'sha256:<hex>',...}}`
+ * 引用，DSH 的 session/attachment RPC 经 HTTP 是 multipart，普通 JSON 代理拿不到字节。
+ * 这里在插件进程内用 sessionController.inspect 找到引用，再用 attachments 服务读出字节。
+ *
+ * 读取策略：
+ *  - image 引用 → `attachments.readImage(ref)`（图片对象存放于 objects/，readFileStream 只接受
+ *    FileAttachmentRef，直接用它读图片会找不到对象）；
+ *  - file 引用 → `attachments.readFileStream(ref, signal)` 以有界 chunk 流式返回（不在内存收集整文件）。
+ * 语义参考旧插件 dsh-remote-plugin/session-file.mjs（MIT），按新 DSH 0.2.1 附件 API 调整。
+ */
+async function serveSessionFile(ctx, req, res, url) {
+  // 同源鉴权由调用方（/mobile/api/* 统一入口）已完成。
+  if (req.method !== 'GET' && req.method !== 'HEAD') return sendBinaryError(res, 405, 'read-only')
+  const keys = [...url.searchParams.keys()]
+  if (
+    keys.some((key) => key !== 'sessionId' && key !== 'attachmentId') ||
+    url.searchParams.getAll('sessionId').length !== 1 ||
+    url.searchParams.getAll('attachmentId').length !== 1
+  ) {
+    return sendBinaryError(res, 400, 'invalid-reference')
+  }
+  const sessionId = url.searchParams.get('sessionId') || ''
+  const attachmentId = url.searchParams.get('attachmentId') || ''
+  if (!sessionId || sessionId.length > 200 || /[\u0000-\u001f]/.test(sessionId) || !ATTACHMENT_ID_RE.test(attachmentId)) {
+    return sendBinaryError(res, 400, 'invalid-reference')
+  }
+
+  let controller
+  let attachments
+  try {
+    controller = ctx.get?.('sessionController')
+    attachments = ctx.get?.('attachments')
+  } catch {
+    controller = null
+    attachments = null
+  }
+  if (!controller?.inspect || !attachments) return sendBinaryError(res, 503, 'files-unsupported')
+
+  const abort = new AbortController()
+  const cancel = () => abort.abort()
+  res.once('close', cancel)
+  try {
+    const inspection = await controller.inspect(sessionId, abort.signal)
+    const wanted = `sha256:${attachmentId}`
+    let ref = null
+    let kind = null
+    for (const event of inspection?.events || []) {
+      if (!event || !['user/message', 'assistant/message', 'tool/result'].includes(event.type)) continue
+      const blocks = event.data?.message?.content ?? event.data?.content
+      if (!Array.isArray(blocks)) continue
+      for (const block of blocks) {
+        if (!block || (block.type !== 'image' && block.type !== 'file')) continue
+        if (block.attachment?.attachmentId === wanted) {
+          ref = block.attachment
+          kind = block.type
+          break
+        }
+      }
+      if (ref) break
+    }
+    if (!ref) return sendBinaryError(res, 404, 'file-not-in-session')
+    if (!Number.isSafeInteger(ref.bytes) || ref.bytes < 0) return sendBinaryError(res, 502, 'invalid-host-reference')
+
+    const mediaType = typeof ref.mediaType === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(ref.mediaType)
+      ? ref.mediaType
+      : 'application/octet-stream'
+    const baseHeaders = {
+      'content-type': mediaType,
+      'cache-control': 'private, no-store',
+      'x-content-type-options': 'nosniff',
+    }
+
+    if (kind === 'image' && typeof attachments.readImage === 'function') {
+      const stored = await attachments.readImage(ref, abort.signal)
+      const data = Buffer.from(stored?.data ?? stored?.bytes ?? stored ?? [])
+      if (!data.length) return sendBinaryError(res, 502, 'file-unavailable')
+      res.writeHead(200, { ...baseHeaders, 'content-length': String(data.length) })
+      if (req.method === 'HEAD') return res.end()
+      return res.end(data)
+    }
+
+    if (typeof attachments.readFileStream !== 'function') return sendBinaryError(res, 503, 'files-unsupported')
+    const iterator = attachments.readFileStream(ref, abort.signal)[Symbol.asyncIterator]()
+    const first = await iterator.next()
+    if (first.done && ref.bytes > 0) return sendBinaryError(res, 502, 'file-unavailable')
+    res.writeHead(200, { ...baseHeaders, 'content-length': String(ref.bytes) })
+    if (req.method === 'HEAD') {
+      await iterator.return?.()
+      return res.end()
+    }
+    let written = 0
+    let next = first
+    try {
+      while (!next.done) {
+        abort.signal.throwIfAborted()
+        const chunk = Buffer.from(next.value)
+        written += chunk.length
+        if (written > ref.bytes) throw new Error('attachment-size-mismatch')
+        if (!res.write(chunk)) await new Promise((resolve, reject) => {
+          res.once('drain', resolve)
+          res.once('close', () => reject(new Error('client-closed')))
+        })
+        next = await iterator.next()
+      }
+      if (written !== ref.bytes) throw new Error('attachment-size-mismatch')
+      res.end()
+    } finally {
+      await iterator.return?.()
+    }
+    return undefined
+  } catch (err) {
+    if (res.headersSent) {
+      try {
+        res.destroy()
+      } catch {
+        /* ignore */
+      }
+      return
+    }
+    return sendBinaryError(res, abort.signal.aborted ? 499 : 502, 'file-unavailable')
+  } finally {
+    res.off('close', cancel)
+  }
 }
 
 export function apply(ctx, config = {}) {
@@ -516,6 +659,9 @@ export function apply(ctx, config = {}) {
     const pathname = url.pathname
     if (pathname === '/mobile/api/status' && req.method === 'GET') {
       return safeJson(res, 200, await statusPayload())
+    }
+    if (pathname === '/mobile/api/session-file' && (req.method === 'GET' || req.method === 'HEAD')) {
+      return serveSessionFile(ctx, req, res, url)
     }
     if (pathname === '/mobile/api/refresh-cookie' && req.method === 'POST') {
       const ok = await refreshCookie().catch(() => false)

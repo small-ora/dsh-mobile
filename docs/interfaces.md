@@ -83,6 +83,7 @@
 | GET | `/api/files/download?path=` | 流式下载，支持 `Range`；`content-disposition` |
 | POST | `/api/files/upload?path=&name=` | raw body，上限 2 GiB；`x-content-sha256` 可选校验；冲突默认拒绝（409），`overwrite=1` 覆盖 |
 | GET | `/api/files/preview?path=` | ≤1 MiB 文本 / 图片直接回源，否则 415 |
+| GET/HEAD | `/api/attachment?sessionId=&attachmentId=<64hex>` | 会话内图片/文件附件字节（Bearer 鉴权）：网关用上游 Cookie 代理 DSH `/mobile/api/session-file`，流式透传；401 未授权 / 404 不存在 / 503 宿主不支持 |
 
 允许根：`~`（家目录）+ `config.roots` 额外目录 + DSH 当前工作区（插件启动时通过配置传给网关）；解析后必须落在根内（realpath 校验，防符号链接穿越）。
 
