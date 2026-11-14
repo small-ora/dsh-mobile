@@ -54,6 +54,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.smallora.dshmobile.core.AppContainer
 import com.smallora.dshmobile.core.ChatItem
 import com.smallora.dshmobile.core.ChatUiState
+import com.smallora.dshmobile.core.resolveMarkdownImageSrc
 import com.smallora.dshmobile.ui.AppNavState
 import com.smallora.dshmobile.ui.Route
 import kotlinx.coroutines.delay
@@ -88,12 +89,22 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
     val listState = rememberLazyListState()
 
     var showModels by remember { mutableStateOf(false) }
-    var previewImage by remember { mutableStateOf<ImageBitmap?>(null) }
-    // 附件图片拉取（失败返回 null，由图片组件显示占位）
-    val fetchAttachment: suspend (String, String) -> Pair<String, ByteArray>? = remember(container) {
-        { sessionId, attachmentId ->
-            runCatching { container.api.fetchAttachment(sessionId, attachmentId) }.getOrNull()
-        }
+    val previewImage = remember { mutableStateOf<ImageBitmap?>(null) }
+    // 图片环境：附件 fetchAttachment / Markdown 远程 OkHttp(15s) / 工作区 fetchFile；失败返回 null 由组件显示占位
+    val imageEnv = remember(container, state.cwd) {
+        ChatImageEnv(
+            loadBytes = { source ->
+                when (source) {
+                    is ChatImageSource.Attachment -> container.api.fetchAttachment(source.sessionId, source.attachmentId)
+
+                    is ChatImageSource.Remote -> fetchRemoteImage(source.url)
+                    is ChatImageSource.Workspace -> container.api.fetchFile(source.path)
+                    is ChatImageSource.DataUrl -> null
+                }
+            },
+            onPreview = { previewImage.value = it },
+            resolve = { src -> resolveMarkdownImageSrc(src, state.cwd)?.toChatImageSource() },
+        )
     }
     var showPermissions by remember { mutableStateOf(false) }
     var showFunctions by remember { mutableStateOf(false) }
@@ -248,15 +259,13 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
                             is DisplayItem.Single -> ChatItemRow(
                                 item = display.item,
                                 thinkSeconds = thinkSeconds[display.item.key],
-                                fetchAttachment = fetchAttachment,
-                                onImagePreview = { previewImage = it },
+                                imageEnv = imageEnv,
                             )
 
                             is DisplayItem.Group -> ProcessGroupRow(
                                 group = display,
                                 thinkSeconds = thinkSeconds,
-                                fetchAttachment = fetchAttachment,
-                                onImagePreview = { previewImage = it },
+                                imageEnv = imageEnv,
                             )
                         }
                     }
@@ -391,8 +400,8 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
         )
     }
 
-    previewImage?.let { bitmap ->
-        FullScreenImagePreview(bitmap = bitmap, onDismiss = { previewImage = null })
+    previewImage.value?.let { bitmap ->
+        FullScreenImagePreview(bitmap = bitmap, onDismiss = { previewImage.value = null })
     }
 }
 

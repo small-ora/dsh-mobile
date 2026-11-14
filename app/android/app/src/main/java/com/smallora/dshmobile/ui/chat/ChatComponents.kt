@@ -81,23 +81,18 @@ import kotlinx.coroutines.delay
 internal fun ChatItemRow(
     item: ChatItem,
     thinkSeconds: Int?,
-    fetchAttachment: suspend (String, String) -> Pair<String, ByteArray>?,
-    onImagePreview: (ImageBitmap) -> Unit,
+    imageEnv: ChatImageEnv,
 ) {
     when (item) {
-        is ChatItem.User -> UserBubble(item, fetchAttachment, onImagePreview)
-        is ChatItem.Assistant -> AssistantMessage(item, thinkSeconds, fetchAttachment, onImagePreview)
+        is ChatItem.User -> UserBubble(item, imageEnv)
+        is ChatItem.Assistant -> AssistantMessage(item, thinkSeconds, imageEnv)
         is ChatItem.Tool -> ToolRow(item)
         is ChatItem.Notice -> NoticeLine(item)
     }
 }
 
 @Composable
-private fun UserBubble(
-    item: ChatItem.User,
-    fetchAttachment: suspend (String, String) -> Pair<String, ByteArray>?,
-    onImagePreview: (ImageBitmap) -> Unit,
-) {
+private fun UserBubble(item: ChatItem.User, imageEnv: ChatImageEnv) {
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
     Row(
@@ -113,11 +108,7 @@ private fun UserBubble(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (item.images.isNotEmpty()) {
-                ChatImages(
-                    images = item.images,
-                    fetchAttachment = fetchAttachment,
-                    onPreview = onImagePreview,
-                )
+                ChatImages(images = item.images, env = imageEnv)
             }
             if (item.text.isNotBlank()) {
                 Text(
@@ -134,8 +125,7 @@ private fun UserBubble(
 private fun AssistantMessage(
     item: ChatItem.Assistant,
     thinkSeconds: Int?,
-    fetchAttachment: suspend (String, String) -> Pair<String, ByteArray>?,
-    onImagePreview: (ImageBitmap) -> Unit,
+    imageEnv: ChatImageEnv,
 ) {
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
@@ -147,17 +137,13 @@ private fun AssistantMessage(
             ReasoningRow(reasoning = item.reasoning, seconds = thinkSeconds, streaming = item.streaming)
         }
         if (item.text.isNotEmpty()) {
-            MarkdownBody(text = item.text, streaming = item.streaming)
+            MarkdownBody(text = item.text, streaming = item.streaming, imageEnv = imageEnv)
         } else if (item.streaming) {
             Text("▌", style = typography.bodyLarge, color = colors.primary)
         }
         // 助手消息图片：Markdown 正文之后
         if (item.images.isNotEmpty()) {
-            ChatImages(
-                images = item.images,
-                fetchAttachment = fetchAttachment,
-                onPreview = onImagePreview,
-            )
+            ChatImages(images = item.images, env = imageEnv)
         }
         if (item.interrupted) {
             Text("已停止", style = typography.labelMedium, color = colors.onSurfaceVariant)
@@ -279,8 +265,7 @@ private fun NoticeLine(item: ChatItem.Notice, horizontalPadding: Dp = 16.dp) {
 internal fun ProcessGroupRow(
     group: DisplayItem.Group,
     thinkSeconds: Map<String, Int>,
-    fetchAttachment: suspend (String, String) -> Pair<String, ByteArray>?,
-    onImagePreview: (ImageBitmap) -> Unit,
+    imageEnv: ChatImageEnv,
 ) {
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
@@ -325,8 +310,7 @@ internal fun ProcessGroupRow(
                         is ChatItem.Assistant -> GroupAssistant(
                             item = item,
                             thinkSeconds = thinkSeconds[item.key],
-                            fetchAttachment = fetchAttachment,
-                            onImagePreview = onImagePreview,
+                            imageEnv = imageEnv,
                         )
                         is ChatItem.User -> Unit // 分段后不会出现
                     }
@@ -340,8 +324,7 @@ internal fun ProcessGroupRow(
 private fun GroupAssistant(
     item: ChatItem.Assistant,
     thinkSeconds: Int?,
-    fetchAttachment: suspend (String, String) -> Pair<String, ByteArray>?,
-    onImagePreview: (ImageBitmap) -> Unit,
+    imageEnv: ChatImageEnv,
 ) {
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
@@ -350,16 +333,12 @@ private fun GroupAssistant(
             ReasoningRow(reasoning = item.reasoning, seconds = thinkSeconds, streaming = item.streaming)
         }
         if (item.text.isNotBlank()) {
-            MarkdownBody(text = item.text, streaming = item.streaming, compact = true)
+            MarkdownBody(text = item.text, streaming = item.streaming, compact = true, imageEnv = imageEnv)
         } else if (item.streaming) {
             Text("▌", style = typography.bodySmall, color = colors.primary)
         }
         if (item.images.isNotEmpty()) {
-            ChatImages(
-                images = item.images,
-                fetchAttachment = fetchAttachment,
-                onPreview = onImagePreview,
-            )
+            ChatImages(images = item.images, env = imageEnv)
         }
         if (item.interrupted) {
             Text("已停止", style = typography.labelSmall, color = colors.onSurfaceVariant)
@@ -375,16 +354,38 @@ internal fun MarkdownBody(
     modifier: Modifier = Modifier,
     streaming: Boolean = false,
     compact: Boolean = false,
+    imageEnv: ChatImageEnv? = null,
+) {
+    // 先剥离 Markdown 图片语法（![alt](src)），按段落 chunk 渲染文字，再在所属段落之后渲染图片
+    val chunks = remember(text) { MarkdownImage.split(text) }
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        chunks.forEachIndexed { index, chunk ->
+            MarkdownChunkView(
+                chunk = chunk,
+                streaming = streaming && index == chunks.lastIndex,
+                compact = compact,
+                imageEnv = imageEnv,
+            )
+        }
+    }
+}
+
+@Composable
+private fun MarkdownChunkView(
+    chunk: MarkdownImage.Chunk,
+    streaming: Boolean,
+    compact: Boolean,
+    imageEnv: ChatImageEnv?,
 ) {
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
     // 过程分组里用 13sp 次要色，正文仍是 15sp 主色
     val bodyStyle = if (compact) typography.bodySmall else typography.bodyLarge
     val bodyColor = if (compact) colors.onSurfaceVariant else colors.onSurface
-    val blocks = remember(text) { Markdown.parseMarkdown(text) }
+    val blocks = remember(chunk.markdown) { Markdown.parseMarkdown(chunk.markdown) }
     val linkColor = colors.primary
     val codeBackground = colors.surfaceVariant
-    val inlines = remember(text, streaming, linkColor, codeBackground) {
+    val inlines = remember(chunk.markdown, streaming, linkColor, codeBackground) {
         blocks.mapIndexed { index, block ->
             val raw = when (block) {
                 is Markdown.Block.Paragraph -> block.text
@@ -405,7 +406,7 @@ internal fun MarkdownBody(
         }
     }
 
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         blocks.forEachIndexed { index, block ->
             val inline = inlines.getOrNull(index)
             when (block) {
@@ -470,6 +471,14 @@ internal fun MarkdownBody(
                     modifier = Modifier.padding(vertical = 2.dp),
                 )
             }
+        }
+        // 图片渲染在所属段落之后（多图换行）
+        if (chunk.images.isNotEmpty() && imageEnv != null) {
+            MarkdownImages(
+                images = chunk.images,
+                env = imageEnv,
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
     }
 }

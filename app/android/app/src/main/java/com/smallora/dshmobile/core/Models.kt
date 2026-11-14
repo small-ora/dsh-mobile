@@ -171,7 +171,21 @@ data class ChatUiState(
     val permission: PermissionState? = null,
     /** 可用斜杠指令（commands/list）。 */
     val commands: List<CommandInfo> = emptyList(),
+    /** 会话工作目录（snapshot.header.cwd 或 sessions 行 cwd）；Markdown 相对图片路径解析用。 */
+    val cwd: String? = null,
 )
+
+/**
+ * Markdown 图片 `![alt](src)` 解析结果（纯函数 [resolveMarkdownImageSrc] 产出）：
+ * - [Remote]：http(s) 外链，直接交给图片加载器；
+ * - [DataUrl]：内联 data URL，直接解码；
+ * - [WorkspacePath]：工作区文件路径，可用 [ApiClient.fetchFile] 拉字节。
+ */
+sealed interface MarkdownImageSource {
+    data class Remote(val url: String) : MarkdownImageSource
+    data class DataUrl(val url: String) : MarkdownImageSource
+    data class WorkspacePath(val path: String) : MarkdownImageSource
+}
 
 /** 一次长轮询结果（interfaces §5.3）。items 为 (seq, value) 对。 */
 data class StreamPoll(

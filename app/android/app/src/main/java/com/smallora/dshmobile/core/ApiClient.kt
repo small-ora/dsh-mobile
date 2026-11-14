@@ -349,16 +349,54 @@ open class ApiClient(
         val builder = Request.Builder().url(url).get()
         token?.let { builder.header("Authorization", "Bearer $it") }
         val resp = executeStream(builder.build())
-        return resp.use {
-            val bytes = it.body?.bytes() ?: ByteArray(0)
-            if (it.code == 401) throw UnauthorizedException("登录已过期，请重新登录")
-            if (!it.isSuccessful) {
-                throw httpError(it.code, Json.parseObject(bytes.toString(Charsets.UTF_8)) ?: JSONObject())
+        // 响应体读取是网络 I/O，必须在 IO 线程完成（否则 NetworkOnMainThreadException）
+        return withContext(Dispatchers.IO) {
+            resp.use {
+                val bytes = it.body?.bytes() ?: ByteArray(0)
+                if (it.code == 401) throw UnauthorizedException("登录已过期，请重新登录")
+                if (!it.isSuccessful) {
+                    throw httpError(it.code, Json.parseObject(bytes.toString(Charsets.UTF_8)) ?: JSONObject())
+                }
+                val mediaType = it.header("Content-Type")?.substringBefore(';')?.trim()
+                    ?.takeIf { type -> type.isNotEmpty() } ?: "application/octet-stream"
+                mediaType to bytes
             }
-            val mediaType = it.header("Content-Type")?.substringBefore(';')?.trim()
-                ?.takeIf { type -> type.isNotEmpty() } ?: "application/octet-stream"
-            mediaType to bytes
         }
+    }
+
+    /**
+     * 拉取工作区文件字节（GET /api/files/download?path=…，Bearer）。
+     * 返回 (mediaType, bytes)；mediaType 取响应头，缺省按扩展名猜（png/jpeg/webp/gif）；
+     * 401 → UnauthorizedException；403/404 → ApiException（带 httpStatus）。
+     */
+    open suspend fun fetchFile(path: String): Pair<String, ByteArray> {
+        val url = directUrl("/api/files/download", mapOf("path" to path))
+        val builder = Request.Builder().url(url).get()
+        token?.let { builder.header("Authorization", "Bearer $it") }
+        val resp = executeStream(builder.build())
+        // 响应体读取是网络 I/O，必须在 IO 线程完成（否则 NetworkOnMainThreadException）
+        return withContext(Dispatchers.IO) {
+            resp.use {
+                val bytes = it.body?.bytes() ?: ByteArray(0)
+                if (it.code == 401) throw UnauthorizedException("登录已过期，请重新登录")
+                if (!it.isSuccessful) {
+                    throw httpError(it.code, Json.parseObject(bytes.toString(Charsets.UTF_8)) ?: JSONObject())
+                }
+                val headerType = it.header("Content-Type")?.substringBefore(';')?.trim()
+                    ?.takeIf { type -> type.isNotEmpty() && type != "application/octet-stream" }
+                val mediaType = headerType ?: guessMediaType(path)
+                mediaType to bytes
+            }
+        }
+    }
+
+    private fun guessMediaType(path: String): String = when (path.substringAfterLast('.', "").lowercase()) {
+        "png" -> "image/png"
+        "jpg", "jpeg" -> "image/jpeg"
+        "webp" -> "image/webp"
+        "gif" -> "image/gif"
+        "svg" -> "image/svg+xml"
+        else -> "application/octet-stream"
     }
 
     // ---- 待处理 / 审批回答 ----

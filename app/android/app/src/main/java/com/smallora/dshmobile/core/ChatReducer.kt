@@ -46,6 +46,8 @@ object ChatReducer {
         var next = state.copy(
             items = emptyList(),
             hasMore = snapshot.boolOr("hasMore", false),
+            // 会话工作目录：Markdown 相对图片路径解析用
+            cwd = snapshot.objOrNull("header")?.strOrNull("cwd") ?: state.cwd,
         )
         // 投影状态（新协议在 projections.values，老形态直接在 projections）
         val values = snapshot.objOrNull("projections")?.projectionValues()

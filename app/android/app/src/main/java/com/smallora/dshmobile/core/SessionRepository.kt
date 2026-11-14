@@ -213,6 +213,7 @@ class SessionRepository(
                     todos = if (row.todos.isNotEmpty()) row.todos else it.todos,
                     selection = row.selection ?: it.selection,
                     running = row.running,
+                    cwd = row.cwd ?: it.cwd,
                 )
             }
         }
