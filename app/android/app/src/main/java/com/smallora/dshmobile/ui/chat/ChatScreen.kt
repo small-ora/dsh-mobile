@@ -128,10 +128,13 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
         snapshotFlowListBottom(listState)
             .collect { stickToBottom = it }
     }
-    val streamingTick = (state.items.lastOrNull() as? ChatItem.Assistant)?.text?.length ?: 0
-    LaunchedEffect(state.items.size, streamingTick) {
-        if (state.items.isNotEmpty() && stickToBottom) {
-            val lastIndex = state.items.size - 1 + if (state.hasMore) 1 else 0
+    // 中间过程合并：一个回合内的工具/思考/中间步骤折叠为「过程 · N 项」，最终回答保持独立
+    val displayItems = remember(state.items) { buildDisplayItems(state.items) }
+    val streamingTick = state.items.lastOrNull { it is ChatItem.Assistant }
+        ?.let { (it as ChatItem.Assistant).text.length + if (it.streaming) 1 else 0 } ?: 0
+    LaunchedEffect(state.items.size, displayItems.size, streamingTick) {
+        if (displayItems.isNotEmpty() && stickToBottom) {
+            val lastIndex = displayItems.size - 1 + if (state.hasMore) 1 else 0
             listState.scrollToItem(lastIndex.coerceAtLeast(0))
         }
     }
@@ -206,8 +209,18 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
                             )
                         }
                     }
-                    items(state.items, key = { it.key }) { item ->
-                        ChatItemRow(item = item, thinkSeconds = thinkSeconds[item.key])
+                    items(displayItems, key = { displayKey(it) }) { display ->
+                        when (display) {
+                            is DisplayItem.Single -> ChatItemRow(
+                                item = display.item,
+                                thinkSeconds = thinkSeconds[display.item.key],
+                            )
+
+                            is DisplayItem.Group -> ProcessGroupRow(
+                                group = display,
+                                thinkSeconds = thinkSeconds,
+                            )
+                        }
                     }
                     item(key = "bottom-spacer") { Spacer(Modifier.height(8.dp)) }
                 }
@@ -287,6 +300,11 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
             onDismiss = { showModels = false },
         )
     }
+}
+
+private fun displayKey(item: DisplayItem): String = when (item) {
+    is DisplayItem.Single -> "s:${item.item.key}"
+    is DisplayItem.Group -> "g:${item.key}"
 }
 
 // ------------------------------------------------------------------ 顶栏

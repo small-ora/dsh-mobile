@@ -182,7 +182,11 @@ private fun ReasoningRow(reasoning: String, seconds: Int?, streaming: Boolean) {
 }
 
 @Composable
-private fun ToolRow(item: ChatItem.Tool) {
+private fun ToolRow(
+    item: ChatItem.Tool,
+    horizontalPadding: Dp = 16.dp,
+    compact: Boolean = false,
+) {
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
     var expanded by remember(item.key) { mutableStateOf(false) }
@@ -191,7 +195,7 @@ private fun ToolRow(item: ChatItem.Tool) {
         item.isError -> colors.error
         else -> colors.onSurfaceVariant
     }
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = horizontalPadding, vertical = 2.dp)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -204,8 +208,12 @@ private fun ToolRow(item: ChatItem.Tool) {
             Spacer(Modifier.width(8.dp))
             Text(
                 text = if (item.running) "工具 · ${item.name} · 运行中" else "工具 · ${item.name}",
-                style = typography.bodyMedium,
-                color = if (item.isError) colors.error else colors.onSurface,
+                style = if (compact) typography.bodySmall else typography.bodyMedium,
+                color = when {
+                    item.isError -> colors.error
+                    compact -> colors.onSurfaceVariant
+                    else -> colors.onSurface
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
@@ -231,7 +239,7 @@ private fun ToolRow(item: ChatItem.Tool) {
 }
 
 @Composable
-private fun NoticeLine(item: ChatItem.Notice) {
+private fun NoticeLine(item: ChatItem.Notice, horizontalPadding: Dp = 16.dp) {
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
     val isError = item.kind.contains("error", ignoreCase = true) || item.kind.contains("fail", ignoreCase = true)
@@ -239,8 +247,87 @@ private fun NoticeLine(item: ChatItem.Notice) {
         text = item.text,
         style = typography.labelMedium,
         color = if (isError) colors.error else colors.onSurfaceVariant,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = horizontalPadding, vertical = 3.dp),
     )
+}
+
+// ------------------------------------------------------------------ 中间过程分组
+
+/**
+ * 一个回合的中间过程合并行：默认收起为「▸ 过程 · N 项」，运行中显示「（运行中…）」；
+ * 点击展开后按原顺序显示工具调用（可再展开 args/result）、思考、中间助手文本、Notice。
+ */
+@Composable
+internal fun ProcessGroupRow(
+    group: DisplayItem.Group,
+    thinkSeconds: Map<String, Int>,
+) {
+    val colors = MaterialTheme.colorScheme
+    val typography = MaterialTheme.typography
+    var expanded by remember(group.key) { mutableStateOf(false) }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 16.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (expanded) "▾" else "▸",
+                style = typography.labelSmall,
+                color = colors.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = "过程 · ${group.items.size} 项",
+                style = typography.labelMedium,
+                color = colors.onSurfaceVariant,
+            )
+            if (group.running) {
+                Text(
+                    text = "（运行中…）",
+                    style = typography.labelMedium,
+                    color = colors.primary,
+                )
+            }
+        }
+        if (expanded) {
+            Column(
+                modifier = Modifier.padding(start = 28.dp, end = 16.dp, top = 2.dp, bottom = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                group.items.forEach { item ->
+                    when (item) {
+                        is ChatItem.Tool -> ToolRow(item, horizontalPadding = 0.dp, compact = true)
+                        is ChatItem.Notice -> NoticeLine(item, horizontalPadding = 0.dp)
+                        is ChatItem.Assistant -> GroupAssistant(item, thinkSeconds[item.key])
+                        is ChatItem.User -> Unit // 分段后不会出现
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GroupAssistant(item: ChatItem.Assistant, thinkSeconds: Int?) {
+    val colors = MaterialTheme.colorScheme
+    val typography = MaterialTheme.typography
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        if (!item.reasoning.isNullOrBlank()) {
+            ReasoningRow(reasoning = item.reasoning, seconds = thinkSeconds, streaming = item.streaming)
+        }
+        if (item.text.isNotBlank()) {
+            MarkdownBody(text = item.text, streaming = item.streaming, compact = true)
+        } else if (item.streaming) {
+            Text("▌", style = typography.bodySmall, color = colors.primary)
+        }
+        if (item.interrupted) {
+            Text("已停止", style = typography.labelSmall, color = colors.onSurfaceVariant)
+        }
+    }
 }
 
 // ------------------------------------------------------------------ Markdown
@@ -250,9 +337,13 @@ internal fun MarkdownBody(
     text: String,
     modifier: Modifier = Modifier,
     streaming: Boolean = false,
+    compact: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
+    // 过程分组里用 13sp 次要色，正文仍是 15sp 主色
+    val bodyStyle = if (compact) typography.bodySmall else typography.bodyLarge
+    val bodyColor = if (compact) colors.onSurfaceVariant else colors.onSurface
     val blocks = remember(text) { Markdown.parseMarkdown(text) }
     val linkColor = colors.primary
     val codeBackground = colors.surfaceVariant
@@ -283,15 +374,19 @@ internal fun MarkdownBody(
             when (block) {
                 is Markdown.Block.Paragraph -> Text(
                     text = inline ?: AnnotatedString(block.text),
-                    style = typography.bodyLarge,
-                    color = colors.onSurface,
+                    style = bodyStyle,
+                    color = bodyColor,
                 )
 
                 is Markdown.Block.Heading -> Text(
                     text = inline ?: AnnotatedString(block.text),
-                    style = (if (block.level <= 2) typography.titleMedium else typography.titleSmall)
-                        .copy(fontWeight = FontWeight.SemiBold),
-                    color = colors.onSurface,
+                    style = if (compact) {
+                        typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
+                    } else {
+                        (if (block.level <= 2) typography.titleMedium else typography.titleSmall)
+                            .copy(fontWeight = FontWeight.SemiBold)
+                    },
+                    color = bodyColor,
                     modifier = Modifier.padding(top = 2.dp),
                 )
 
@@ -303,14 +398,14 @@ internal fun MarkdownBody(
                 ) {
                     Text(
                         text = if (block.ordered) "${block.number}." else "•",
-                        style = typography.bodyLarge,
+                        style = bodyStyle,
                         color = colors.onSurfaceVariant,
                         modifier = Modifier.width(24.dp),
                     )
                     Text(
                         text = inline ?: AnnotatedString(block.text),
-                        style = typography.bodyLarge,
-                        color = colors.onSurface,
+                        style = bodyStyle,
+                        color = bodyColor,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -327,7 +422,7 @@ internal fun MarkdownBody(
                     Spacer(Modifier.width(10.dp))
                     Text(
                         text = inline ?: AnnotatedString(block.text),
-                        style = typography.bodyMedium,
+                        style = if (compact) typography.bodySmall else typography.bodyMedium,
                         color = colors.onSurfaceVariant,
                     )
                 }
