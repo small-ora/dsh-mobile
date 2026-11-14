@@ -61,6 +61,10 @@ class ChatViewModel(
     private val _toast = MutableStateFlow<String?>(null)
     val toast: StateFlow<String?> = _toast.asStateFlow()
 
+    /** 权限切换后的本地乐观值（core 的 chatState.permission.current 更新后自动清除）。 */
+    private val _permissionOverride = MutableStateFlow<String?>(null)
+    val permissionOverride: StateFlow<String?> = _permissionOverride.asStateFlow()
+
     /** 思考时长（key → 秒），仅对本次会话内观察到从 streaming→结束的条目有值。 */
     private val _thinkSeconds = MutableStateFlow<Map<String, Int>>(emptyMap())
     val thinkSeconds: StateFlow<Map<String, Int>> = _thinkSeconds.asStateFlow()
@@ -69,6 +73,13 @@ class ChatViewModel(
 
     init {
         viewModelScope.launch { observeReasoningDurations() }
+        viewModelScope.launch {
+            state.collect { ui ->
+                val override = _permissionOverride.value ?: return@collect
+                val current = ui.permission?.current
+                if (current == null || current == override) _permissionOverride.value = null
+            }
+        }
     }
 
     /** 进入聊天页时确保 session/follow 流已打开（core 幂等：重复调用不叠加订阅）。 */
@@ -233,6 +244,19 @@ class ChatViewModel(
             val ok = runCatching { repo.answer(eventId, outcome) }.getOrDefault(false)
             if (!ok) _toast.value = "提交失败，问题可能已失效"
             _busyEventIds.update { it - eventId }
+        }
+    }
+
+    /** 切换权限：执行 `/permission <value>` 命令，成功后乐观更新 chip。 */
+    fun setPermission(value: String) {
+        viewModelScope.launch {
+            val ok = runCatching { repo.runCommand(sessionId, "/permission $value") }.getOrDefault(false)
+            if (ok) {
+                _permissionOverride.value = value
+                _toast.value = "权限已切换"
+            } else {
+                _toast.value = "切换权限失败"
+            }
         }
     }
 

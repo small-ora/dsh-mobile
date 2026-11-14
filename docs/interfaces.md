@@ -157,8 +157,10 @@ RPC 仅放行：
 `session/list`、`session/modelCatalog`、`session/follow`（流）、`session/page`、`session/projections`、`session/prompt`、`session/cancel`、`session/create`、`session/rename`、`session/search`、`session/selectModel`、`session/updateQueue`、`session/fork`、`session/attachment`、
 `goals/get`、`goals/pause`、`goals/resume`、`goals/complete`、`goals/clear`、
 `workspace/archiveSession`、`workspace/unarchiveSession`、`workspace/create`、
+`commands/list`、`commands/execute`、`permissionPresets/catalog`、
 `$events/result`。
 
+- 命令/权限：`commands/list {agentId}`（value 为数组，含 name/description/input.hint）、`commands/execute {agentId,line,submittedAttachments:[]}`、`permissionPresets/catalog {}`（`{options:[{value,name}],defaultPreset}`）。
 - 参数命名（v3 实测更正）：**只有 `session/list` 用 `{_request:{}}`**；`session/page|prompt|cancel|create|rename|search|selectModel|updateQueue|follow|projections|attachment` 与 `workspace/*` 均为 `{request:{…}}`；`goals/get` 为 `{agentId}`；`goals/pause|resume|complete|clear` 为 `{agentId, ref:{id,revision}}`（`ref` 取自会话 goal 投影的 `goal.id` + `goal.revision`）。`session/prompt` 必须带客户端生成的 `requestId`（UUID）。网关只透传 args、不改名。
 - 流仅放行：`$events`、`session/follow`。
 - 其他一律 403 `{error:'method-not-allowed'}`。

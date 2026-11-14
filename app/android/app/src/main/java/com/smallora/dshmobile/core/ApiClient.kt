@@ -203,7 +203,16 @@ open class ApiClient(
      * 调用网关 RPC 代理，返回上游 result.value。
      * 参数名按真实 DSH 协议由调用方提供（session/list 用 _request，其余多为 request）。
      */
-    suspend fun rpc(method: String, args: JSONObject): JSONObject {
+    open suspend fun rpc(method: String, args: JSONObject): JSONObject {
+        return (rpcRaw(method, args) as? JSONObject) ?: JSONObject()
+    }
+
+    /** RPC 返回数组的接口（如 commands/list）；非数组时返回空数组。 */
+    open suspend fun rpcArray(method: String, args: JSONObject): JSONArray {
+        return (rpcRaw(method, args) as? JSONArray) ?: JSONArray()
+    }
+
+    private suspend fun rpcRaw(method: String, args: JSONObject): Any? {
         val body = JSONObject().put("method", method).put("args", args)
         val resp = call("POST", "/api/rpc", body)
         if (!resp.boolOr("ok", true)) {
@@ -213,7 +222,7 @@ open class ApiClient(
                 message = error?.strOrNull("message") ?: "请求失败",
             )
         }
-        return resp.objOrNull("value") ?: JSONObject()
+        return resp.opt("value")
     }
 
     // ---- 事件流长轮询 ----

@@ -28,7 +28,7 @@ dsh-mobile-plugin：/mobile 主机面板 + 自动拉起网关 + 侧边栏入口
 | --- | --- |
 | `gateway/` | 独立网关（Node ≥20，零 npm 运行时依赖） |
 | `plugin/` | DSH bundle 插件（侧边栏入口 + `/mobile` 主机面板：状态/初始口令/设备管理/日志 + 网关自启） |
-| `app/android/` | 原生 Android App（Kotlin + Compose，arm64-v8a，minSdk 31） |
+| `app/android/` | 原生 Android App（Kotlin + Compose，arm64-v8a，minSdk 31；图标 `docs/assets/app-icon-512.png`） |
 | `tests/` | 网关 `node:test` 测试 |
 | `scripts/` | 语法门禁、E2E、构建脚本 |
 | `docs/interfaces.md` | 网关 HTTP/WS API、DSH 协议、Kotlin 模块契约 |

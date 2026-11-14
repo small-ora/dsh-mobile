@@ -75,6 +75,7 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
     val busyEvents by vm.busyEventIds.collectAsStateWithLifecycle()
     val modelCatalog by vm.models.collectAsStateWithLifecycle()
     val thinkSeconds by vm.thinkSeconds.collectAsStateWithLifecycle()
+    val permissionOverride by vm.permissionOverride.collectAsStateWithLifecycle()
 
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
@@ -82,8 +83,10 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
     val listState = rememberLazyListState()
 
     var showModels by remember { mutableStateOf(false) }
+    var showPermissions by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var stickToBottom by remember { mutableStateOf(true) }
+    var commandMenuDismissed by remember { mutableStateOf(false) }
 
     BackHandler { nav.back() }
 
@@ -103,6 +106,24 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
             vm.clearToast()
         }
     }
+
+    // 斜杠指令：输入以 / 开头时按前缀匹配 core 的 commands，点击补全
+    val slashText = draft.trimStart()
+    val commandQuery = if (slashText.startsWith("/") && slashText.length <= 40) {
+        slashText.removePrefix("/").substringBefore(' ').trim()
+    } else {
+        null
+    }
+    val matchedCommands = if (commandQuery == null) {
+        emptyList()
+    } else {
+        state.commands.filter { it.name.startsWith(commandQuery, ignoreCase = true) }
+    }
+    LaunchedEffect(draft) { commandMenuDismissed = false }
+    val showCommandMenu = commandQuery != null && matchedCommands.isNotEmpty() && !commandMenuDismissed
+    val permissionCurrent = permissionOverride ?: state.permission?.current
+    // 有 permission 数据就显示 chip（current 为 null 时用「权限」占位，仍可点开选择）
+    val permissionLabel = permissionOverride ?: state.permission?.let { it.current ?: "权限" }
 
     // 用户上滑到顶部时自动加载更早历史（直接读 StateFlow.value，避免闭包捕获旧状态）
     val stateFlow = vm.state
@@ -153,6 +174,8 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
         ChatTopBar(
             state = state,
             modelLabel = currentModelName,
+            permissionCurrent = permissionLabel,
+            onPermissionClick = { showPermissions = true },
             menuOpen = menuOpen,
             onMenuOpenChange = { menuOpen = it },
             onBack = { nav.back() },
@@ -274,6 +297,7 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
                     }
                 }
             }
+            QueuedMessagesRow(queued = state.queued)
             ChatInputBar(
                 draft = draft,
                 onDraftChange = { vm.onDraftChange(it) },
@@ -288,6 +312,13 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
                 onSteerChange = { vm.setSteer(it) },
                 onSend = { vm.send() },
                 onCancel = { vm.cancel() },
+                commands = matchedCommands,
+                showCommandMenu = showCommandMenu,
+                onDismissCommandMenu = { commandMenuDismissed = true },
+                onPickCommand = { name ->
+                    vm.onDraftChange("/$name ")
+                    commandMenuDismissed = true
+                },
             )
         }
     }
@@ -298,6 +329,19 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
             current = state.selection,
             onPick = { vm.selectModel(it) },
             onDismiss = { showModels = false },
+        )
+    }
+
+    val permission = state.permission
+    if (showPermissions && permission != null) {
+        PermissionDialog(
+            current = permissionCurrent,
+            options = permission.options,
+            onPick = { option ->
+                showPermissions = false
+                vm.setPermission(option.value)
+            },
+            onDismiss = { showPermissions = false },
         )
     }
 }
@@ -313,6 +357,8 @@ private fun displayKey(item: DisplayItem): String = when (item) {
 private fun ChatTopBar(
     state: ChatUiState,
     modelLabel: String,
+    permissionCurrent: String?,
+    onPermissionClick: () -> Unit,
     menuOpen: Boolean,
     onMenuOpenChange: (Boolean) -> Unit,
     onBack: () -> Unit,
@@ -362,6 +408,20 @@ private fun ChatTopBar(
                 .clickable(onClick = onOpenModels)
                 .padding(horizontal = 8.dp, vertical = 6.dp),
         )
+        if (!permissionCurrent.isNullOrBlank()) {
+            Text(
+                text = permissionCurrent,
+                style = typography.labelSmall,
+                color = colors.onSurfaceVariant,
+                maxLines = 1,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(colors.surfaceVariant)
+                    .clickable(onClick = onPermissionClick)
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
+            )
+            Spacer(Modifier.width(2.dp))
+        }
         Box {
             Box(
                 modifier = Modifier

@@ -32,6 +32,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -63,11 +65,14 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.smallora.dshmobile.core.ChatItem
+import com.smallora.dshmobile.core.CommandInfo
 import com.smallora.dshmobile.core.Goal
 import com.smallora.dshmobile.core.ModelOption
 import com.smallora.dshmobile.core.ModelSelection
 import com.smallora.dshmobile.core.PendingRequest
 import com.smallora.dshmobile.core.Question
+import com.smallora.dshmobile.core.PermissionOption
+import com.smallora.dshmobile.core.QueuedMessage
 import com.smallora.dshmobile.core.Todo
 import com.smallora.dshmobile.ui.md.Markdown
 import kotlinx.coroutines.delay
@@ -865,6 +870,10 @@ internal fun ChatInputBar(
     onSteerChange: (Boolean) -> Unit,
     onSend: () -> Unit,
     onCancel: () -> Unit,
+    commands: List<CommandInfo> = emptyList(),
+    showCommandMenu: Boolean = false,
+    onDismissCommandMenu: () -> Unit = {},
+    onPickCommand: (String) -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
@@ -943,24 +952,66 @@ internal fun ChatInputBar(
                 Text("+", style = typography.titleMedium, color = colors.onSurfaceVariant)
             }
             Spacer(Modifier.width(8.dp))
-            BasicTextField(
-                value = draft,
-                onValueChange = onDraftChange,
-                modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 44.dp, max = 120.dp)
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(colors.surfaceVariant)
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                textStyle = typography.bodyLarge.copy(color = colors.onSurface),
-                cursorBrush = androidx.compose.ui.graphics.SolidColor(colors.primary),
-                decorationBox = { inner ->
-                    if (draft.isEmpty()) {
-                        Text("给 DSH 发消息…", style = typography.bodyLarge, color = colors.onSurfaceVariant)
+            Box(modifier = Modifier.weight(1f)) {
+                BasicTextField(
+                    value = draft,
+                    onValueChange = onDraftChange,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 44.dp, max = 120.dp)
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(colors.surfaceVariant)
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    textStyle = typography.bodyLarge.copy(color = colors.onSurface),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(colors.primary),
+                    decorationBox = { inner ->
+                        if (draft.isEmpty()) {
+                            Text("给 DSH 发消息…", style = typography.bodyLarge, color = colors.onSurfaceVariant)
+                        }
+                        inner()
+                    },
+                )
+                // 斜杠指令菜单：输入以 / 开头时浮出，点击补全；点击外部/返回键由 DropdownMenu 关闭
+                DropdownMenu(
+                    expanded = showCommandMenu,
+                    onDismissRequest = onDismissCommandMenu,
+                ) {
+                    commands.forEach { command ->
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "/${command.name}",
+                                            style = typography.bodySmall,
+                                            color = colors.onSurface,
+                                        )
+                                        val hint = command.hint
+                                        if (!hint.isNullOrBlank()) {
+                                            Spacer(Modifier.width(6.dp))
+                                            Text(
+                                                text = hint,
+                                                style = typography.labelSmall,
+                                                color = colors.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+                                    if (command.description.isNotBlank()) {
+                                        Text(
+                                            text = command.description,
+                                            style = typography.labelSmall,
+                                            color = colors.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                            },
+                            onClick = { onPickCommand(command.name) },
+                        )
                     }
-                    inner()
-                },
-            )
+                }
+            }
             Spacer(Modifier.width(8.dp))
             if (running) {
                 Box(
@@ -991,6 +1042,136 @@ internal fun ChatInputBar(
             }
         }
     }
+}
+
+// ------------------------------------------------------------------ 排队消息
+
+/** 输入区上方的排队消息：默认收起为「排队 N 条 ▾」，展开只读列出每条文本（图片显示 [图片]）。 */
+@Composable
+internal fun QueuedMessagesRow(queued: List<QueuedMessage>) {
+    if (queued.isEmpty()) return
+    val colors = MaterialTheme.colorScheme
+    val typography = MaterialTheme.typography
+    var expanded by remember { mutableStateOf(false) }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 16.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (expanded) "▾" else "▸",
+                style = typography.labelSmall,
+                color = colors.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = "排队 ${queued.size} 条",
+                style = typography.labelMedium,
+                color = colors.onSurfaceVariant,
+            )
+        }
+        if (expanded) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 120.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = 28.dp, end = 16.dp, bottom = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                queued.forEach { message ->
+                    Text(
+                        text = queuedMessageLabel(message),
+                        style = typography.labelSmall,
+                        color = colors.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun queuedMessageLabel(message: QueuedMessage): String {
+    val text = message.text.trim()
+    val hasImage = message.images.isNotEmpty()
+    return when {
+        text.isNotEmpty() && hasImage -> "$text [图片]"
+        text.isNotEmpty() -> text
+        hasImage -> "[图片]"
+        else -> ""
+    }
+}
+
+// ------------------------------------------------------------------ 权限
+
+/** 权限选择：单选列出 permission.options，当前项打勾；选择后由上层执行 /permission <value>。 */
+@Composable
+internal fun PermissionDialog(
+    current: String?,
+    options: List<PermissionOption>,
+    onPick: (PermissionOption) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val typography = MaterialTheme.typography
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("完成", style = typography.bodyMedium, color = colors.primary)
+            }
+        },
+        title = {
+            Text(
+                "权限",
+                style = typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = colors.onSurface,
+            )
+        },
+        text = {
+            Column(modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                if (options.isEmpty()) {
+                    Text("暂无可用权限选项", style = typography.bodyMedium, color = colors.onSurfaceVariant)
+                }
+                options.forEach { option ->
+                    val selected = option.value == current
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onPick(option) }
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = selected, onClick = { onPick(option) })
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = option.name,
+                                style = typography.bodyMedium,
+                                color = if (selected) colors.primary else colors.onSurface,
+                            )
+                            if (option.name != option.value) {
+                                Text(
+                                    text = option.value,
+                                    style = typography.labelSmall,
+                                    color = colors.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        if (selected) {
+                            Text("✓", style = typography.labelMedium, color = colors.primary)
+                        }
+                    }
+                }
+            }
+        },
+        containerColor = colors.surface,
+    )
 }
 
 // ------------------------------------------------------------------ 模型选择

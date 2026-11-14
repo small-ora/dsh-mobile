@@ -82,6 +82,18 @@ data class ConnState(val online: Boolean, val server: String?, val error: String
 /** 工作区（= 会话 cwd 的不同目录）：App 会话列表按工作区筛选。 */
 data class WorkspaceRow(val path: String, val name: String, val count: Int)
 
+/** 排队中的用户消息（inbox next-turn / next-step 合并；key 用作稳定列表 key）。 */
+data class QueuedMessage(val key: String, val text: String, val images: List<String>)
+
+/** 权限预设选项（permissionPresets/catalog）。 */
+data class PermissionOption(val value: String, val name: String)
+
+/** 会话当前权限 + 可选项。 */
+data class PermissionState(val current: String?, val options: List<PermissionOption>)
+
+/** 斜杠指令（commands/list）。 */
+data class CommandInfo(val name: String, val description: String, val hint: String?)
+
 sealed interface ChatItem {
     val key: String
 
@@ -127,6 +139,12 @@ data class ChatUiState(
     val hasMore: Boolean,
     val loadingOlder: Boolean,
     val error: String?,
+    /** 排队中的用户消息（inbox next-turn + next-step）。 */
+    val queued: List<QueuedMessage> = emptyList(),
+    /** 当前权限与可选项（permissions projection + permissionPresets/catalog）。 */
+    val permission: PermissionState? = null,
+    /** 可用斜杠指令（commands/list）。 */
+    val commands: List<CommandInfo> = emptyList(),
 )
 
 /** 一次长轮询结果（interfaces §5.3）。items 为 (seq, value) 对。 */

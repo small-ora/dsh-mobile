@@ -40,6 +40,10 @@ export const RPC_ALLOWLIST = new Set([
   'workspace/archiveSession',
   'workspace/unarchiveSession',
   'workspace/create',
+  // v0.1.5：排队消息 / 权限预设 / 斜杠指令（真实 DSH 已确认存在，参数原样透传）
+  'commands/list',
+  'commands/execute',
+  'permissionPresets/catalog',
   '$events/result',
 ])
 

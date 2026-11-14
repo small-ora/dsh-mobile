@@ -291,6 +291,75 @@ object Json {
         )
     }
 
+    // ---- 排队消息 / 权限 / 指令 ----
+
+    /** 从 projections.values.inbox 解析排队消息：next-turn 在前、next-step 在后，空项跳过。 */
+    fun parseQueuedMessages(values: JSONObject?): List<QueuedMessage> {
+        if (values == null) return emptyList()
+        val inbox = values.objOrNull("inbox") ?: return emptyList()
+        val out = ArrayList<QueuedMessage>()
+        for (section in listOf("next-turn", "next-step")) {
+            val items = inbox.arrOrNull(section) ?: continue
+            for (index in 0 until items.length()) {
+                val item = items.optJSONObject(index) ?: continue
+                val content = item.arrOrNull("content")
+                    ?: item.objOrNull("message")?.arrOrNull("content")
+                // 排队行由 UI 单独展示图片（[图片]），text 不拼占位符
+                val text = contentPlainText(content)
+                val images = contentImages(content)
+                if (text.isBlank() && images.isEmpty()) continue
+                out.add(
+                    QueuedMessage(
+                        key = item.strOrNull("id") ?: "inbox:$section:$index",
+                        text = text,
+                        images = images,
+                    ),
+                )
+            }
+        }
+        return out
+    }
+
+    /** permissionPresets/catalog 的 options（value/name）。 */
+    fun parsePermissionOptions(catalog: JSONObject?): List<PermissionOption> {
+        val items = catalog?.arrOrNull("options") ?: return emptyList()
+        val out = ArrayList<PermissionOption>()
+        for (index in 0 until items.length()) {
+            val item = items.optJSONObject(index) ?: continue
+            val value = item.strOrNull("value") ?: item.strOrNull("id") ?: continue
+            out.add(PermissionOption(value = value, name = item.strOrNull("name") ?: value))
+        }
+        return out
+    }
+
+    /** 从 projections.values.permissions + 进程级 catalog 组装 PermissionState。 */
+    fun parsePermissionState(values: JSONObject?, catalog: JSONObject?): PermissionState? {
+        if (values == null) return null
+        val current = values.objOrNull("permissions")?.strOrNull("currentValue")
+        val options = parsePermissionOptions(catalog)
+        return if (current == null && options.isEmpty()) null else PermissionState(current, options)
+    }
+
+    /** commands/list 的 value 是数组：[{definitionId,name,description,input:{hint}}]。 */
+    fun parseCommands(value: JSONArray?): List<CommandInfo> {
+        if (value == null) return emptyList()
+        val out = ArrayList<CommandInfo>()
+        for (index in 0 until value.length()) {
+            val item = value.optJSONObject(index) ?: continue
+            val rawName = item.strOrNull("name") ?: item.strOrNull("definitionId") ?: continue
+            val name = rawName.trim().trimStart('/')
+            if (name.isEmpty()) continue
+            out.add(
+                CommandInfo(
+                    name = name,
+                    description = item.strOrNull("description") ?: "",
+                    hint = item.objOrNull("input")?.strOrNull("hint"),
+                ),
+            )
+        }
+        return out
+    }
+
     // ---- 消息内容块 ----
 
     fun messageContent(data: JSONObject?): JSONArray? {
@@ -325,6 +394,18 @@ object Json {
             }
         }
         return parts.joinToString("\n").takeIf { it.isNotBlank() }
+    }
+
+    /** 仅拼接 text 块（图片由调用方单独展示，不插入 "[图片]" 占位）。 */
+    fun contentPlainText(content: JSONArray?): String {
+        if (content == null) return ""
+        val parts = ArrayList<String>()
+        for (i in 0 until content.length()) {
+            val block = content.optJSONObject(i) ?: continue
+            if (block.strOrNull("type") != "text") continue
+            block.strOrNull("text")?.let { parts.add(it) }
+        }
+        return parts.joinToString("\n")
     }
 
     fun contentImages(content: JSONArray?): List<String> {

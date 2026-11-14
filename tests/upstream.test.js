@@ -320,3 +320,41 @@ test('/api/rpc 拒绝非法 Content-Length 与超限分块 body', async (t) => {
   assert.equal(status, 413)
   assert.equal(upstream.rpcCalls.length, 0)
 })
+
+
+test('RPC 白名单 v0.1.5 扩展：commands/list、commands/execute、permissionPresets/catalog 原样透传', async (t) => {
+  const upstream = await startFakeUpstream({
+    rpcHandlers: {
+      'commands/list': ({ body }) => ({ ok: true, value: { echo: body.payload.args } }),
+      'commands/execute': ({ body }) => ({ ok: true, value: { echoed: body.payload.args } }),
+      'permissionPresets/catalog': ({ body }) => ({ ok: true, value: { catalog: body.payload.args } }),
+    },
+  })
+  const { gateway } = await startTestGateway(t, { upstream, gatewayOptions: { disableStreams: true } })
+  const session = await loginReady(gateway)
+  assert.equal(session.status, 200)
+
+  const cases = [
+    ['commands/list', { sessionId: 's1' }],
+    ['commands/execute', { sessionId: 's1', line: '/export markdown', submittedAttachments: [] }],
+    ['permissionPresets/catalog', { sessionId: 's1' }],
+  ]
+  for (const [method, args] of cases) {
+    const response = await readJson(await api(gateway, session.json.token, '/api/rpc', { method: 'POST', body: { method, args } }))
+    assert.equal(response.status, 200, `${method} 应 200`)
+    assert.equal(response.json.ok, true)
+    const call = upstream.lastRpc(method)
+    assert.ok(call, `${method} 应转发到上游`)
+    assert.equal(call.body.type, 'client-request')
+    assert.equal(call.body.method, method)
+    assert.deepEqual(call.body.payload.args, args, `${method} args 应原样透传`)
+  }
+
+  // 白名单外仍 403（含相近前缀方法，不能被通配放行）
+  for (const method of ['commands/delete', 'commands', 'permissionPresets/apply', 'permissionPresets/catalog/extra']) {
+    const response = await readJson(await api(gateway, session.json.token, '/api/rpc', { method: 'POST', body: { method, args: {} } }))
+    assert.equal(response.status, 403, `${method} 应 403`)
+    assert.equal(response.json.error, 'method-not-allowed')
+  }
+  assert.equal(upstream.rpcCount('commands/delete'), 0)
+})

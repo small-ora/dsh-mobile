@@ -2,12 +2,17 @@ package com.smallora.dshmobile.core
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -61,6 +66,13 @@ class SessionRepository(
 
     /** $events 单例泵的并发门闩：并发 ensureEvents 只创建/启动一次（避免开两条流，审查 P2）。 */
     private val eventsGate = SingleFlightGate { createEventsPump() }
+
+    /** 进程级（仓库级）权限预设目录缓存：只请求一次 permissionPresets/catalog。 */
+    private val permissionCatalog = MutableStateFlow<JSONObject?>(null)
+    private val permissionCatalogMutex = Mutex()
+
+    /** 会话运行期间的队列轮询（每 2s 刷新 inbox，停止生成即空闲不请求）。 */
+    private val queuePollers = ConcurrentHashMap<String, Job>()
 
     // ---- 对外：会话列表 / 连接 / 待处理 / 模型 ----
 
@@ -225,6 +237,11 @@ class SessionRepository(
         )
         followers[id] = pump
         pump.start()
+        // 打开会话后拉一次投影（排队消息/权限/指令），并启动运行期队列轮询
+        runCatching { refreshQueue(id) }
+        runCatching { refreshPermission(id) }
+        runCatching { commands(id) }
+        ensureQueuePolling(id)
     }
 
     /**
@@ -234,6 +251,7 @@ class SessionRepository(
     fun releaseSession(id: String) {
         startedSessions.remove(id)
         followers.remove(id)?.stop()
+        stopQueuePolling(id)
         cursors.remove(id)
         minimumSeqs.remove(id)
     }
@@ -273,6 +291,20 @@ class SessionRepository(
     // ---- 发送 / 停止 / 回答 ----
 
     suspend fun send(id: String, text: String, images: List<String> = emptyList(), steer: Boolean = false) {
+        val trimmed = text.trim()
+        // 斜杠指令：命中 commands 缓存时走 commands/execute（不发给模型）；
+        // 执行失败按上游语义回退为普通消息（整行当文本发送）。
+        if (images.isEmpty() && trimmed.startsWith("/")) {
+            val cached = chatState(id).value.commands
+            val available = if (cached.isEmpty()) {
+                runCatching { commands(id) }.getOrDefault(emptyList())
+            } else {
+                cached
+            }
+            if (isKnownCommand(trimmed, available) && runCommand(id, trimmed)) {
+                return
+            }
+        }
         val content = JSONArray()
         if (text.isNotEmpty()) {
             content.put(JSONObject().put("type", "text").put("text", text))
@@ -287,6 +319,119 @@ class SessionRepository(
             .put("mode", if (steer) "steer" else "queue")
             .put("content", content)
         api.rpc("session/prompt", JSONObject().put("request", request))
+        // queue 模式发送后刷新排队列表（steer 插队不排队）
+        if (!steer) runCatching { refreshQueue(id) }
+    }
+
+    // ---- 排队消息 / 权限 / 斜杠指令 ----
+
+    /** 刷新会话排队消息（session/projections → inbox.next-turn + next-step）。 */
+    suspend fun refreshQueue(sessionId: String) {
+        val values = fetchProjectionValues(sessionId) ?: return
+        val queued = Json.parseQueuedMessages(values)
+        updateChat(sessionId) { it.copy(queued = queued) }
+        // 同一份投影顺带更新权限，省一次 RPC
+        updatePermissionFromValues(sessionId, values)
+    }
+
+    /** 刷新会话权限（projections.permissions.currentValue + 进程级预设目录缓存）。 */
+    suspend fun refreshPermission(sessionId: String) {
+        val values = fetchProjectionValues(sessionId) ?: return
+        updatePermissionFromValues(sessionId, values)
+    }
+
+    /** 加载斜杠指令列表（commands/list，value 为数组）并缓存到 chatState。 */
+    suspend fun commands(sessionId: String): List<CommandInfo> {
+        return try {
+            val value = api.rpcArray("commands/list", JSONObject().put("agentId", sessionId))
+            val list = Json.parseCommands(value)
+            updateChat(sessionId) { it.copy(commands = list) }
+            list
+        } catch (_: Exception) {
+            chatState(sessionId).value.commands
+        }
+    }
+
+    /**
+     * 执行一条斜杠指令（commands/execute）。返回是否作为命令成功执行；
+     * 失败（ok=false / executed=false / 网络错误）返回 false，由 send 回退普通消息。
+     */
+    suspend fun runCommand(sessionId: String, line: String): Boolean {
+        return try {
+            val value = api.rpc(
+                "commands/execute",
+                JSONObject()
+                    .put("agentId", sessionId)
+                    .put("line", line)
+                    .put("submittedAttachments", JSONArray()),
+            )
+            val executed = if (value.has("executed")) value.boolOr("executed", false) else true
+            if (executed) {
+                // 指令可能改变权限/队列（如 /permission、/compact）：后台刷新
+                scope.launch {
+                    runCatching { refreshPermission(sessionId) }
+                    runCatching { refreshQueue(sessionId) }
+                }
+            }
+            executed
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private suspend fun fetchProjectionValues(sessionId: String): JSONObject? {
+        return try {
+            val value = api.rpc(
+                "session/projections",
+                JSONObject().put("request", JSONObject().put("sessionId", sessionId)),
+            )
+            val values = value.projectionValues()
+            values.takeIf { it.length() > 0 }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private suspend fun updatePermissionFromValues(sessionId: String, values: JSONObject) {
+        val catalog = ensurePermissionCatalog()
+        val permission = Json.parsePermissionState(values, catalog)
+        if (permission != null) updateChat(sessionId) { it.copy(permission = permission) }
+    }
+
+    private suspend fun ensurePermissionCatalog(): JSONObject? {
+        permissionCatalog.value?.let { return it }
+        return permissionCatalogMutex.withLock {
+            permissionCatalog.value?.let { return@withLock it }
+            val fetched = runCatching {
+                api.rpc("permissionPresets/catalog", JSONObject())
+            }.getOrNull()
+            if (fetched != null) permissionCatalog.value = fetched
+            fetched
+        }
+    }
+
+    private fun isKnownCommand(line: String, commands: List<CommandInfo>): Boolean {
+        val token = line.removePrefix("/").trim().substringBefore(' ').substringBefore('\n')
+        if (token.isEmpty()) return false
+        return commands.any { it.name.equals(token, ignoreCase = true) }
+    }
+
+    private fun ensureQueuePolling(sessionId: String) {
+        if (queuePollers.containsKey(sessionId)) return
+        val job = scope.launch {
+            while (isActive) {
+                delay(QUEUE_POLL_INTERVAL_MS)
+                if (!startedSessions.contains(sessionId)) break
+                if (chatState(sessionId).value.running) {
+                    runCatching { refreshQueue(sessionId) }
+                }
+            }
+        }
+        queuePollers[sessionId] = job
+    }
+
+    private fun stopQueuePolling(sessionId: String) {
+        queuePollers.remove(sessionId)?.cancel()
     }
 
     suspend fun cancel(id: String) {
@@ -362,6 +507,8 @@ class SessionRepository(
         startedSessions.clear()
         for (pump in followers.values) pump.stop()
         followers.clear()
+        for (job in queuePollers.values) job.cancel()
+        queuePollers.clear()
         cursors.clear()
         minimumSeqs.clear()
         applySessionRows(emptyList())
@@ -488,6 +635,8 @@ class SessionRepository(
                 updateChat(sessionId) { ChatReducer.applySnapshot(it, value) }
                 val title = chatState(sessionId).value.title
                 if (title.isNotEmpty()) updateRow(sessionId) { it.copy(title = title) }
+                // 快照后刷新排队消息（与事件流互补）
+                scope.launch { runCatching { refreshQueue(sessionId) } }
             }
 
             "event" -> {
@@ -511,6 +660,11 @@ class SessionRepository(
                     "goal/change" -> {
                         val goal = chatState(sessionId).value.goal
                         updateRow(sessionId) { it.copy(goal = goal) }
+                    }
+
+                    "agent/inbox/spliced" -> {
+                        // inbox 变更（排队/插队/消费）：立即刷新排队消息
+                        scope.launch { runCatching { refreshQueue(sessionId) } }
                     }
                 }
             }
@@ -612,6 +766,10 @@ class SessionRepository(
         is UnauthorizedException -> e.message ?: "登录已过期"
         is ApiException -> e.message ?: e.code
         else -> e.message ?: "操作失败"
+    }
+
+    private companion object {
+        const val QUEUE_POLL_INTERVAL_MS = 2_000L
     }
 
     private fun decodeDataUrl(url: String): JSONObject? {
