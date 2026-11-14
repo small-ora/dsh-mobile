@@ -7,7 +7,7 @@ DSH（DeepSeek Harness）的移动远程客户端：**DSH 插件 + 零依赖网�
 - 支持 **Cloudflare Tunnel / 任意反向代理**：网关只监听 `0.0.0.0:8790`，把域名转发到这个端口即可；事件通道用 **HTTP 长轮询**，不依赖 WebSocket。
 - 与现有 `dsh-remote-plugin` 完全并存：独立插件、独立网关（8790）、独立配置目录 `~/.dsh-mobile`，不改动现有 DSH 配置。
 
-当前版本：**v0.1.9**（App `0.1.9` / 插件 `0.1.9`），见 [CHANGELOG](CHANGELOG.md)。
+当前版本：**v0.1.9**（App `0.1.9` / 插件 `0.1.9`），见 [CHANGELOG](CHANGELOG.md) 与 [docs/STATUS.md](docs/STATUS.md)。
 
 ## 文档
 
@@ -18,8 +18,8 @@ DSH（DeepSeek Harness）的移动远程客户端：**DSH 插件 + 零依赖网�
 | [docs/SECURITY.md](docs/SECURITY.md) | 信任边界、凭据模型、威胁与缓解、漏洞报告 |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | 常见问题（刷新失败/图片/通知/连接/安装） |
 | [docs/RELEASING.md](docs/RELEASING.md) | 版本、CI、签名密钥、发布与回滚 |
+| [docs/STATUS.md](docs/STATUS.md) | 当前版本状态、已交付功能、已知限制与路线图 |
 | [SPEC.md](SPEC.md) | 需求与验收标准（as-built） |
-| [docs/recon/](docs/recon/) | 早期勘察笔记（历史资料，可能过时） |
 
 ## 架构
 
