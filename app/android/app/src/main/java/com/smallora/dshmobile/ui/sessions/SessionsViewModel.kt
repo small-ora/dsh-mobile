@@ -5,17 +5,25 @@ import androidx.lifecycle.viewModelScope
 import com.smallora.dshmobile.core.AppContainer
 import com.smallora.dshmobile.core.SessionRow
 import com.smallora.dshmobile.core.UnauthorizedException
+import com.smallora.dshmobile.core.WorkspaceRow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** 会话列表：刷新、搜索、新建、重命名、归档。 */
+/** 会话列表：工作区筛选、刷新、搜索、新建、重命名、归档。 */
 class SessionsViewModel(private val container: AppContainer) : ViewModel() {
 
     private val repo = container.repo
 
-    val sessions: StateFlow<List<SessionRow>> = repo.sessions
+    /** core 已按选中工作区过滤后的会话列表（默认全部工作区）。 */
+    val sessions: StateFlow<List<SessionRow>> = repo.filteredSessions
+
+    val workspaces: StateFlow<List<WorkspaceRow>> = repo.workspaces
+
+    /** null = 全部工作区。 */
+    val selectedWorkspace: StateFlow<String?> = repo.selectedWorkspace
+
     val connection = repo.connection
 
     private val _query = MutableStateFlow("")
@@ -52,6 +60,10 @@ class SessionsViewModel(private val container: AppContainer) : ViewModel() {
                 _loading.value = false
             }
         }
+    }
+
+    fun selectWorkspace(path: String?) {
+        repo.selectWorkspace(path)
     }
 
     fun search(raw: String) {

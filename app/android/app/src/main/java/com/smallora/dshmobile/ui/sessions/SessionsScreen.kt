@@ -46,12 +46,19 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.smallora.dshmobile.core.AppContainer
 import com.smallora.dshmobile.core.SessionRow
+import com.smallora.dshmobile.core.WorkspaceRow
 import com.smallora.dshmobile.ui.AppNavState
 import com.smallora.dshmobile.ui.Route
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * 对话页（DeepSeek 简洁风）：44–52dp 顶栏 + 工作区筛选 + 下拉刷新 + 行式会话列表。
+ * - 工作区选择：`全部工作区 ▾`，列表来自 repo.workspaces（名称 + 会话数），选中打勾。
+ * - 列表使用 repo.filteredSessions；搜索时对搜索结果同样按工作区过滤。
+ * - 错误条显示 core 的 connection.error 原文并提供「重试」。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SessionsScreen(container: AppContainer, nav: AppNavState) {
@@ -59,6 +66,9 @@ fun SessionsScreen(container: AppContainer, nav: AppNavState) {
         factory = viewModelFactory { initializer { SessionsViewModel(container) } },
     )
     val sessions by vm.sessions.collectAsStateWithLifecycle()
+    val workspaces by vm.workspaces.collectAsStateWithLifecycle()
+    val selectedWorkspace by vm.selectedWorkspace.collectAsStateWithLifecycle()
+    val connection by vm.connection.collectAsStateWithLifecycle()
     val query by vm.query.collectAsStateWithLifecycle()
     val searchResults by vm.searchResults.collectAsStateWithLifecycle()
     val loading by vm.loading.collectAsStateWithLifecycle()
@@ -67,6 +77,7 @@ fun SessionsScreen(container: AppContainer, nav: AppNavState) {
     val snackbar = remember { SnackbarHostState() }
 
     var searchMode by remember { mutableStateOf(false) }
+    var workspaceMenuOpen by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<SessionRow?>(null) }
     var renameText by remember { mutableStateOf("") }
 
@@ -77,7 +88,12 @@ fun SessionsScreen(container: AppContainer, nav: AppNavState) {
         }
     }
 
-    val visibleSessions = if (searchMode && query.isNotBlank()) searchResults else sessions
+    val searching = searchMode && query.isNotBlank()
+    val visibleSessions = if (searching) {
+        searchResults.filter { matchesWorkspace(it, selectedWorkspace) }
+    } else {
+        sessions
+    }
     val expiring = error?.contains("登录") == true || error?.contains("过期") == true
 
     if (renameTarget != null) {
@@ -140,7 +156,40 @@ fun SessionsScreen(container: AppContainer, nav: AppNavState) {
                     ) { Text("+ 新建") }
                 }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // 工作区选择器：顶栏标题下方一行可点文字（全部工作区 ▾）
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(36.dp)
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                WorkspaceSelector(
+                    workspaces = workspaces,
+                    selected = selectedWorkspace,
+                    menuOpen = workspaceMenuOpen,
+                    onMenuOpenChange = { workspaceMenuOpen = it },
+                    onSelect = {
+                        vm.selectWorkspace(it)
+                        workspaceMenuOpen = false
+                    },
+                )
+                Spacer(Modifier.weight(1f))
+                if (selectedWorkspace != null) {
+                    Text(
+                        text = "清除筛选",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { vm.selectWorkspace(null) }
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             if (searchMode) {
                 OutlinedTextField(
@@ -154,12 +203,14 @@ fun SessionsScreen(container: AppContainer, nav: AppNavState) {
                 )
             }
 
-            error?.let { message ->
+            // 可操作错误条：显示 core 的 connection.error 原文 + 重试
+            val errorText = connection.error?.takeIf { it.isNotBlank() } ?: error
+            errorText?.let { message ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.errorContainer)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -171,6 +222,7 @@ fun SessionsScreen(container: AppContainer, nav: AppNavState) {
                     if (expiring) {
                         TextButton(onClick = { nav.reset(Route.Login) }) { Text("去登录") }
                     }
+                    TextButton(onClick = { vm.refresh() }) { Text("重试") }
                 }
             }
 
@@ -181,16 +233,23 @@ fun SessionsScreen(container: AppContainer, nav: AppNavState) {
                     .fillMaxWidth()
                     .weight(1f),
             ) {
-                if (visibleSessions.isEmpty()) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            if (searchMode && query.isNotBlank()) "没有匹配的会话" else "暂无会话，点右上角「新建」",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                } else {
-                    LazyColumn(Modifier.fillMaxSize()) {
+                // 始终用 LazyColumn（空态也放在里面），保证空列表时下拉刷新仍可用
+                LazyColumn(Modifier.fillMaxSize()) {
+                    if (visibleSessions.isEmpty()) {
+                        item(key = "empty") {
+                            Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    when {
+                                        searching -> "没有匹配的会话"
+                                        selectedWorkspace != null -> "该工作区暂无会话"
+                                        else -> "暂无会话，点右上角「新建」"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    } else {
                         items(visibleSessions, key = { it.id }) { row ->
                             SessionRowItem(
                                 row = row,
@@ -208,6 +267,103 @@ fun SessionsScreen(container: AppContainer, nav: AppNavState) {
         }
     }
 }
+
+/* ---------------------------------------------------------------- 工作区选择器 */
+
+@Composable
+private fun WorkspaceSelector(
+    workspaces: List<WorkspaceRow>,
+    selected: String?,
+    menuOpen: Boolean,
+    onMenuOpenChange: (Boolean) -> Unit,
+    onSelect: (String?) -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val typography = MaterialTheme.typography
+    val currentName = workspaces.firstOrNull { it.path == selected }?.name ?: "全部工作区"
+
+    Box {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { onMenuOpenChange(true) }
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = currentName,
+                style = typography.labelMedium,
+                color = if (selected != null) colors.primary else colors.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.width(4.dp))
+            Text("▾", style = typography.labelSmall, color = colors.onSurfaceVariant)
+        }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { onMenuOpenChange(false) }) {
+            DropdownMenuItem(
+                text = {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "全部工作区",
+                            style = typography.bodyMedium,
+                            color = if (selected == null) colors.primary else colors.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (selected == null) {
+                            Text("✓", style = typography.labelMedium, color = colors.primary)
+                        }
+                    }
+                },
+                onClick = { onSelect(null) },
+            )
+            workspaces.forEach { workspace ->
+                val checked = workspace.path == selected
+                DropdownMenuItem(
+                    text = {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    text = workspace.name,
+                                    style = typography.bodyMedium,
+                                    color = if (checked) colors.primary else colors.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = workspace.path,
+                                    style = typography.labelSmall,
+                                    color = colors.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Text(
+                                text = "${workspace.count}",
+                                style = typography.labelSmall,
+                                color = colors.onSurfaceVariant,
+                            )
+                            if (checked) {
+                                Spacer(Modifier.width(6.dp))
+                                Text("✓", style = typography.labelMedium, color = colors.primary)
+                            }
+                        }
+                    },
+                    onClick = { onSelect(workspace.path) },
+                )
+            }
+        }
+    }
+}
+
+private fun matchesWorkspace(row: SessionRow, selected: String?): Boolean {
+    if (selected == null) return true
+    val cwd = row.cwd ?: return false
+    val root = selected.trimEnd('/')
+    return cwd == root || cwd.startsWith("$root/")
+}
+
+/* ---------------------------------------------------------------- 会话行 */
 
 @Composable
 private fun SessionRowItem(
@@ -260,6 +416,17 @@ private fun SessionRowItem(
                         )
                         Spacer(Modifier.width(10.dp))
                     }
+                    // 工作区名（cwd basename）：多工作区时避免混淆
+                    workspaceName(row.cwd)?.let { name ->
+                        Text(
+                            name,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.width(10.dp))
+                    }
                     Text(
                         formatTime(row.updatedAt),
                         style = MaterialTheme.typography.labelSmall,
@@ -303,8 +470,13 @@ private fun SessionRowItem(
                 }
             }
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
+}
+
+private fun workspaceName(cwd: String?): String? {
+    val path = cwd?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: return null
+    return path.substringAfterLast('/').ifBlank { null }
 }
 
 private fun goalLabel(phase: String): String = when (phase) {

@@ -105,6 +105,11 @@
       }
       .toast.show { opacity: 1; }
       .copy { flex: 0 0 auto; }
+      .count { margin-left: 6px; font-weight: 400; color: var(--muted); font-size: 12px; letter-spacing: 0; }
+      .dev-name { font-weight: 500; }
+      .dev-meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+      .revoke { color: var(--red); border-color: #f0c8c8; }
+      .revoke:hover { background: #fff5f5; }
     </style>
   </head>
   <body>
@@ -119,6 +124,7 @@
         <div class="row"><span class="k">运行状态</span><span class="v" id="gw-running"><span class="dot"></span>检测中…</span></div>
         <div class="row"><span class="k">监听</span><span class="v mono" id="gw-listen">—</span></div>
         <div class="row"><span class="k">上游 DSH</span><span class="v" id="gw-upstream">—</span></div>
+        <div class="row"><span class="k">事件通道</span><span class="v" id="gw-streamhub">—</span></div>
         <div class="row"><span class="k">版本</span><span class="v mono" id="gw-version">—</span></div>
         <div class="row"><span class="k">重启次数</span><span class="v" id="gw-restarts">—</span></div>
       </div>
@@ -145,12 +151,11 @@
     </section>
 
     <section>
-      <h2>远程访问</h2>
-      <div class="rows">
-        <div class="row"><span class="k">转发目标</span><span class="v mono" id="remote-target">—</span></div>
-        <div class="row"><span class="k">说明</span><span class="v" id="remote-note">—</span></div>
+      <h2>设备管理 <span class="count" id="devices-summary"></span></h2>
+      <div class="rows" id="devices-rows">
+        <div class="row"><span class="k">设备</span><span class="v muted">加载中…</span></div>
       </div>
-      <p class="note">网关不安装、不管理 cloudflared，也不保存任何 Cloudflare 凭据；公网暴露时请务必使用强口令。</p>
+      <p class="note">在线 = 最近 60 秒内有请求；撤销后该设备需重新登录。</p>
     </section>
 
     <section>

@@ -21,8 +21,8 @@ export const name = 'dsh-mobile-plugin'
 export const inject = ['webServer', 'connection']
 
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url))
-const PLUGIN_VERSION = '0.1.0'
-const GATEWAY_VERSION = '0.1.0'
+const PLUGIN_VERSION = '0.1.2'
+const GATEWAY_VERSION = '0.1.2'
 const DEFAULT_GATEWAY_PORT = 8790
 const MAX_LOG_LINES = 200
 const RESTART_DELAYS = [1000, 2000, 5000, 15_000, 30_000]
@@ -430,6 +430,29 @@ export function apply(ctx, config = {}) {
     }
   }
 
+  /** 带 adminToken 调网关插件侧管理接口（仅本机回环，不暴露给浏览器）。 */
+  async function gatewayAdminFetch(pathname, { method = 'GET', body } = {}) {
+    const headers = { 'x-admin-token': state.adminToken }
+    if (body !== undefined) headers['content-type'] = 'application/json'
+    try {
+      const response = await fetch(`http://127.0.0.1:${gatewayPort}${pathname}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(2500),
+      })
+      let json = null
+      try {
+        json = await response.json()
+      } catch {
+        json = null
+      }
+      return { status: response.status, json }
+    } catch (err) {
+      return { status: 0, json: null, error: err?.code || 'gateway-unreachable' }
+    }
+  }
+
   function configDirMode() {
     try {
       const mode = fs.statSync(home).mode & 0o777
@@ -440,7 +463,11 @@ export function apply(ctx, config = {}) {
   }
 
   async function statusPayload() {
-    const gateway = await probeGateway()
+    const [gateway, overview] = await Promise.all([
+      probeGateway(),
+      gatewayPort ? gatewayAdminFetch('/api/admin/overview') : Promise.resolve({ status: 0, json: null }),
+    ])
+    const adminOverview = overview && overview.status === 200 && overview.json ? overview.json : null
     const changePassword = mustChangePassword()
     return {
       ok: true,
@@ -465,6 +492,9 @@ export function apply(ctx, config = {}) {
       },
       config: { dir: home, mustChangePassword: changePassword, dirMode: configDirMode() },
       initialPassword: changePassword ? readInitialPassword() : null,
+      // 流中心状态（长轮询主通道）与设备计数（面板/排查用）
+      streamHub: adminOverview?.streamHub ?? { connected: false, streamCount: 0, lastError: null },
+      devices: adminOverview?.devices ?? { total: 0, online: 0 },
       lan: lanAddresses(),
       remoteAccess: {
         gatewayPort,
@@ -494,6 +524,21 @@ export function apply(ctx, config = {}) {
     if (pathname === '/mobile/api/restart-gateway' && req.method === 'POST') {
       await restartGateway()
       return safeJson(res, 200, { ok: true })
+    }
+    if (pathname === '/mobile/api/devices' && req.method === 'GET') {
+      const result = await gatewayAdminFetch('/api/admin/devices')
+      if (result.status === 200) return safeJson(res, 200, result.json)
+      if (result.status === 0) return safeJson(res, 502, { error: 'gateway-unavailable' })
+      return safeJson(res, 502, { error: 'gateway-rejected-admin' })
+    }
+    if (pathname === '/mobile/api/devices/revoke' && req.method === 'POST') {
+      const body = await readBodyJson(req)
+      if (!body || typeof body.id !== 'string' || !body.id) return safeJson(res, 400, { error: 'bad-request' })
+      const result = await gatewayAdminFetch('/api/admin/devices/revoke', { method: 'POST', body: { id: body.id } })
+      if (result.status === 200) return safeJson(res, 200, result.json)
+      if (result.status === 404) return safeJson(res, 404, { error: 'device-not-found' })
+      if (result.status === 0) return safeJson(res, 502, { error: 'gateway-unavailable' })
+      return safeJson(res, 502, { error: 'gateway-rejected-admin' })
     }
     if (pathname === '/mobile/api/logs' && req.method === 'GET') {
       return safeJson(res, 200, { lines: state.childLogs.slice(-100) })

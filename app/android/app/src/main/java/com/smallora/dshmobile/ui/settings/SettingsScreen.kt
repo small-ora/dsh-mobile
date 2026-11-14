@@ -23,7 +23,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -55,7 +54,6 @@ private const val REPO_URL = "https://github.com/small-ora/dsh-mobile"
 
 /**
  * 设置页：分组行式列表（无卡片阴影）。
- * v3：不提供隧道配置，只保留「远程访问」说明卡（Cloudflare 通道 → 本机 8790）。
  */
 @Composable
 fun SettingsScreen(container: AppContainer, nav: AppNavState) {
@@ -146,7 +144,6 @@ fun SettingsScreen(container: AppContainer, nav: AppNavState) {
                     showDivider = true,
                 )
             }
-            item { RemoteAccessCard(server = state.currentServer?.base) }
             item {
                 SettingRow(
                     title = "通知提醒",
@@ -425,50 +422,6 @@ private fun SettingRow(
                 thickness = 1.dp,
                 color = colors.outlineVariant,
                 modifier = Modifier.padding(start = 16.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun RemoteAccessCard(server: String?) {
-    val colors = MaterialTheme.colorScheme
-    val typography = MaterialTheme.typography
-    Surface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-        shape = RoundedCornerShape(12.dp),
-        color = colors.surface,
-        border = androidx.compose.foundation.BorderStroke(1.dp, colors.outlineVariant),
-    ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "远程访问",
-                    style = typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = colors.onSurface,
-                )
-                Spacer(Modifier.weight(1f))
-                Text("说明", style = typography.labelSmall, color = colors.onSurfaceVariant)
-            }
-            Text(
-                text = "当前服务器：${server ?: "未配置"}",
-                style = typography.bodyMedium,
-                color = colors.onSurface,
-            )
-            Text(
-                text = "地址格式：局域网用 http://IP:8790；公网请用 https://域名",
-                style = typography.labelSmall,
-                color = colors.onSurfaceVariant,
-            )
-            Text(
-                text = "公网访问由你自己的 Cloudflare 通道把域名转发到本机 8790 端口；App 内不保存任何隧道凭据。",
-                style = typography.labelMedium,
-                color = colors.onSurfaceVariant,
-            )
-            Text(
-                text = "公网已暴露：请使用强口令，并定期在「设备管理」中撤销不用的设备。",
-                style = typography.labelMedium,
-                color = colors.error,
             )
         }
     }

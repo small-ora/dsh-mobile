@@ -34,6 +34,18 @@ class SessionRepository(
     private val _connection = MutableStateFlow(ConnState(false, null, null))
     val connection: StateFlow<ConnState> = _connection.asStateFlow()
 
+    private val _workspaces = MutableStateFlow<List<WorkspaceRow>>(emptyList())
+    /** 当前会话集合按 cwd 聚合出的工作区列表（count 降序）。 */
+    val workspaces: StateFlow<List<WorkspaceRow>> = _workspaces.asStateFlow()
+
+    private val _selectedWorkspace = MutableStateFlow<String?>(null)
+    /** 当前选中的工作区路径；null = 全部。 */
+    val selectedWorkspace: StateFlow<String?> = _selectedWorkspace.asStateFlow()
+
+    private val _filteredSessions = MutableStateFlow<List<SessionRow>>(emptyList())
+    /** 按 selectedWorkspace 过滤后的会话（UI 会话列表直接消费这个）。 */
+    val filteredSessions: StateFlow<List<SessionRow>> = _filteredSessions.asStateFlow()
+
     private val _pending = MutableStateFlow<List<PendingRequest>>(emptyList())
     val pending: StateFlow<List<PendingRequest>> = _pending.asStateFlow()
 
@@ -56,13 +68,13 @@ class SessionRepository(
         ensureEvents()
         try {
             val value = api.rpc("session/list", JSONObject().put("_request", JSONObject()))
-            _sessions.value = Json.parseSessions(value).sortedByDescending { it.updatedAt }
+            applySessionRows(Json.parseSessions(value))
             _connection.value = ConnState(true, api.currentServer, null)
         } catch (e: UnauthorizedException) {
-            _connection.value = ConnState(false, api.currentServer, e.message)
+            _connection.value = ConnState(false, api.currentServer, describeFailure(e))
             throw e
         } catch (e: Exception) {
-            _connection.value = ConnState(false, api.currentServer, e.message ?: "网络错误")
+            _connection.value = ConnState(false, api.currentServer, describeFailure(e))
             throw e
         }
         runCatching {
@@ -78,7 +90,7 @@ class SessionRepository(
         if (!refreshing.compareAndSet(false, true)) return
         try {
             val value = api.rpc("session/list", JSONObject().put("_request", JSONObject()))
-            _sessions.value = Json.parseSessions(value).sortedByDescending { it.updatedAt }
+            applySessionRows(Json.parseSessions(value))
         } catch (_: Exception) {
             // 后台静默刷新失败不打扰 UI
         } finally {
@@ -126,7 +138,7 @@ class SessionRepository(
                 JSONObject().put("request", JSONObject().put("sessionId", id)),
             )
             closeSession(id)
-            _sessions.update { rows -> rows.filterNot { it.id == id } }
+            updateSessions { rows -> rows.filterNot { it.id == id } }
             true
         } catch (_: Exception) {
             false
@@ -352,7 +364,7 @@ class SessionRepository(
         followers.clear()
         cursors.clear()
         minimumSeqs.clear()
-        _sessions.value = emptyList()
+        applySessionRows(emptyList())
         _pending.value = emptyList()
         _modelCatalog.value = emptyList()
         _connection.value = ConnState(false, null, null)
@@ -437,7 +449,7 @@ class SessionRepository(
             }
 
             "api-session/removed" -> {
-                _sessions.update { rows -> rows.filterNot { it.id == id } }
+                updateSessions { rows -> rows.filterNot { it.id == id } }
                 startedSessions.remove(id)
                 followers.remove(id)?.stop()
             }
@@ -540,21 +552,60 @@ class SessionRepository(
             .update(transform)
     }
 
-    private fun updateRow(id: String, transform: (SessionRow) -> SessionRow) {
-        _sessions.update { rows ->
-            rows.map { row -> if (row.id == id) transform(row) else row }
+    /** 选择工作区（null = 全部）；选择立即反映到 [filteredSessions]。 */
+    fun selectWorkspace(path: String?) {
+        _selectedWorkspace.value = path?.let { normalizeWorkspacePath(it) }?.takeIf { it.isNotEmpty() }
+        rebuildWorkspaceViews()
+    }
+
+    /**
+     * 统一会话写入入口：更新 sessions 并同步重建 workspaces / filteredSessions
+     * （internal 供 JVM 单测注入会话，refresh 也走这里）。
+     */
+    internal fun applySessionRows(rows: List<SessionRow>) {
+        _sessions.value = rows.sortedByDescending { it.updatedAt }
+        rebuildWorkspaceViews()
+    }
+
+    private fun updateSessions(transform: (List<SessionRow>) -> List<SessionRow>) {
+        applySessionRows(transform(_sessions.value))
+    }
+
+    /** 从当前 sessions 重建工作区列表与筛选结果；所选工作区消失时回退「全部」。 */
+    private fun rebuildWorkspaceViews() {
+        val rows = _sessions.value
+        _workspaces.value = buildWorkspaces(rows)
+        val selected = _selectedWorkspace.value
+        if (selected != null && _workspaces.value.none { it.path == selected }) {
+            _selectedWorkspace.value = null
         }
+        val effective = _selectedWorkspace.value
+        _filteredSessions.value = if (effective == null) {
+            rows
+        } else {
+            rows.filter { normalizeWorkspacePath(it.cwd) == effective }
+        }
+    }
+
+    private fun updateRow(id: String, transform: (SessionRow) -> SessionRow) {
+        _sessions.value = _sessions.value.map { row -> if (row.id == id) transform(row) else row }
+            .sortedByDescending { it.updatedAt }
+        rebuildWorkspaceViews()
     }
 
     private fun upsertRow(row: SessionRow) {
-        _sessions.update { rows ->
-            val filtered = rows.filterNot { it.id == row.id }
-            (filtered + row).sortedByDescending { it.updatedAt }
-        }
+        val filtered = _sessions.value.filterNot { it.id == row.id }
+        applySessionRows(filtered + row)
     }
 
     private fun resortSessions() {
-        _sessions.update { rows -> rows.sortedByDescending { it.updatedAt } }
+        applySessionRows(_sessions.value)
+    }
+
+    private fun describeFailure(e: Exception): String {
+        val type = e.javaClass.simpleName.takeIf { it.isNotBlank() } ?: "Exception"
+        val message = e.message?.takeIf { it.isNotBlank() } ?: "未知错误"
+        return "$type: $message"
     }
 
     private fun friendly(e: Exception): String = when (e) {
@@ -599,4 +650,32 @@ internal class SingleFlightGate<T>(private val create: () -> T) {
     fun clear() {
         synchronized(lock) { value = null }
     }
+}
+
+// ---- 工作区聚合（纯函数，JVM 可测） ----
+
+/** 归一化 cwd：去首尾空白与尾部 "/"（根目录保留 "/"）；空路径返回 ""。 */
+internal fun normalizeWorkspacePath(cwd: String?): String {
+    val raw = cwd?.trim().orEmpty()
+    if (raw.isEmpty()) return ""
+    return if (raw == "/") "/" else raw.trimEnd('/')
+}
+
+/** 工作区展示名：路径 basename（根目录用 "/"）。 */
+internal fun workspaceName(path: String): String {
+    if (path == "/") return "/"
+    return path.substringAfterLast('/').ifEmpty { path }
+}
+
+/** 从会话行聚合工作区：cwd 去重计数、空 cwd 忽略、count 降序（同数按 name 升序）。 */
+internal fun buildWorkspaces(rows: List<SessionRow>): List<WorkspaceRow> {
+    val counts = LinkedHashMap<String, Int>()
+    for (row in rows) {
+        val path = normalizeWorkspacePath(row.cwd)
+        if (path.isEmpty()) continue
+        counts[path] = (counts[path] ?: 0) + 1
+    }
+    return counts.entries
+        .map { WorkspaceRow(path = it.key, name = workspaceName(it.key), count = it.value) }
+        .sortedWith(compareByDescending<WorkspaceRow> { it.count }.thenBy { it.name })
 }

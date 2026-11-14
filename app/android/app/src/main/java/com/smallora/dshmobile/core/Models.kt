@@ -79,6 +79,9 @@ data class FileListing(val path: String, val roots: List<String>, val entries: L
 
 data class ConnState(val online: Boolean, val server: String?, val error: String?)
 
+/** 工作区（= 会话 cwd 的不同目录）：App 会话列表按工作区筛选。 */
+data class WorkspaceRow(val path: String, val name: String, val count: Int)
+
 sealed interface ChatItem {
     val key: String
 

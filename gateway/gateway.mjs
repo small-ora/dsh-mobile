@@ -278,6 +278,25 @@ export async function createGateway(options = {}) {
     return session
   }
 
+  /** 插件侧管理接口鉴权（x-admin-token，来自 spawn 时注入的 env，不暴露给 App）。 */
+  function requireAdmin(req, res) {
+    const provided = String(req.headers['x-admin-token'] || '')
+    if (!adminToken || !timingSafeEqualString(provided, adminToken)) {
+      sendJson(res, 401, { error: 'unauthorized' })
+      return false
+    }
+    return true
+  }
+
+  /** 设备列表（面板用）：online = 最近 60 秒内有活跃请求；不返回 tokenHash。 */
+  function adminDeviceList() {
+    const now = typeof auth.now === 'function' ? auth.now() : Date.now()
+    return auth
+      .listDevices()
+      .map((device) => ({ ...device, online: now - Number(device.lastSeenAt || 0) < 60_000 }))
+      .sort((a, b) => Number(b.lastSeenAt || 0) - Number(a.lastSeenAt || 0))
+  }
+
   function hostInfo() {
     return { version: null, gatewayVersion: VERSION }
   }
@@ -287,7 +306,8 @@ export async function createGateway(options = {}) {
       ok: true,
       service: 'dsh-mobile',
       version: VERSION,
-      upstream: { ok: upstream.healthy },
+      // WS hub 已连接即代表上游可用（空闲 >60s 时 upstream.healthy 会回落，但流中心仍在线）。
+      upstream: { ok: upstream.healthy || Boolean(hub?.connected) },
       mustChangePassword: config.mustChangePassword === true,
       proxyTrust: proxyTrust.describe(),
     }
@@ -511,11 +531,37 @@ export async function createGateway(options = {}) {
     }
 
     // ---- 插件侧管理接口（x-admin-token，不暴露给 App） ----
+    if (pathname === '/api/admin/devices' && method === 'GET') {
+      if (!requireAdmin(req, res)) return
+      return sendJson(res, 200, { ok: true, items: adminDeviceList() })
+    }
+    if (pathname === '/api/admin/devices/revoke' && method === 'POST') {
+      if (!requireAdmin(req, res)) return
+      const body = await readJsonBody(req, SMALL_BODY_LIMIT)
+      if (typeof body.id !== 'string' || !body.id) return sendJson(res, 400, { error: 'bad-request' })
+      const removed = auth.revokeDevice(body.id)
+      if (!removed) return sendJson(res, 404, { error: 'device-not-found' })
+      hub?.cancelByOwner(body.id)
+      const wsClosed = closeDeviceWebSockets(body.id, 'device-revoked')
+      logger.info('device revoked from plugin panel', { wsClosed })
+      return sendJson(res, 200, { ok: true, revoked: true })
+    }
+    if (pathname === '/api/admin/overview' && method === 'GET') {
+      if (!requireAdmin(req, res)) return
+      const devices = adminDeviceList()
+      return sendJson(res, 200, {
+        ok: true,
+        streamHub: {
+          connected: Boolean(hub?.connected),
+          streamCount: hub ? hub.streamCount : 0,
+          lastError: hub?.lastError ?? null,
+        },
+        devices: { total: devices.length, online: devices.filter((device) => device.online).length },
+        upstream: { ok: upstream.healthy || Boolean(hub?.connected), lastError: upstream.lastError ?? null },
+      })
+    }
     if (pathname === '/api/admin/restart-gateway' && method === 'POST') {
-      const provided = String(req.headers['x-admin-token'] || '')
-      if (!adminToken || !timingSafeEqualString(provided, adminToken)) {
-        return sendJson(res, 403, { error: 'forbidden' })
-      }
+      if (!requireAdmin(req, res)) return
       sendJson(res, 200, { ok: true })
       logger.info('gateway restart requested by plugin')
       setTimeout(() => process.exit(0), 100).unref?.()
