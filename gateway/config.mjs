@@ -14,7 +14,7 @@ import path from 'node:path'
 import { hashPassword } from './auth.mjs'
 
 /** 网关/插件共用版本号（与 plugin/package.json 保持一致）。 */
-export const VERSION = '0.1.2'
+export const VERSION = '0.1.5'
 export const DEFAULT_PORT = 8790
 export const DEFAULT_UPSTREAM_PORT = 3080
 
