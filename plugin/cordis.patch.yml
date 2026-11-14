@@ -1,0 +1,7 @@
+# dsh-mobile-plugin — bundle 层补丁：把插件 host 行插入 profile。
+# 服务端入口 index.mjs 导出 name/inject/apply；客户端入口 client.js 注册侧边栏入口。
+- insert:
+    - id: dsh-mobile
+      name: dsh-mobile-plugin
+      config:
+        port: 8790

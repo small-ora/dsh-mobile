@@ -1,0 +1,6 @@
+{
+  "name": "dsh-mobile-tests",
+  "private": true,
+  "type": "module",
+  "main": "./index.js"
+}

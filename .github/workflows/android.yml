@@ -1,0 +1,170 @@
+name: Android APK
+
+# 触发：tag v*（构建并发布 Release）、push 到 main/dev、PR、手动触发（仅构建 artifact）。
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+      - dev
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      versionName:
+        description: '版本名（如 0.1.0；留空自动生成）'
+        required: false
+        default: ''
+      versionCode:
+        description: '版本号（正整数；留空自动生成）'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build release APK
+    runs-on: ubuntu-22.04
+    env:
+      ANDROID_BUILD_TOOLS: '36.0.0'
+      ANDROID_PLATFORM: 'android-36'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK (platform 36 + build-tools 36.0.0)
+        run: |
+          set -euo pipefail
+          SDK_ROOT="$HOME/android-sdk"
+          mkdir -p "$SDK_ROOT/cmdline-tools"
+          curl -fsSL -o /tmp/cmdline-tools.zip \
+            https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools
+          mv /tmp/cmdline-tools/cmdline-tools "$SDK_ROOT/cmdline-tools/latest"
+          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" --licenses > /dev/null || true
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" \
+            "platform-tools" "platforms;${ANDROID_PLATFORM}" "build-tools;${ANDROID_BUILD_TOOLS}" > /dev/null
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "$SDK_ROOT/build-tools/${ANDROID_BUILD_TOOLS}" >> "$GITHUB_PATH"
+          echo "sdk.dir=$SDK_ROOT" > app/android/local.properties
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('app/android/**/*.gradle', 'app/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            NAME="${GITHUB_REF_NAME#v}"
+            CODE="${GITHUB_RUN_NUMBER}"
+          elif [[ -n "${{ github.event.inputs.versionName }}" ]]; then
+            NAME="${{ github.event.inputs.versionName }}"
+            CODE="${{ github.event.inputs.versionCode }}"
+          else
+            NAME="0.1.0-${GITHUB_RUN_NUMBER}"
+            CODE="${GITHUB_RUN_NUMBER}"
+          fi
+          if [[ -z "${CODE:-}" ]]; then CODE="${GITHUB_RUN_NUMBER}"; fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Resolved: versionName=$NAME versionCode=$CODE"
+
+      - name: Configure release signing (secrets, never committed)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${KEYSTORE_BASE64:-}" ]]; then
+            echo "::error::缺少仓库 secret ANDROID_KEYSTORE_BASE64（发布签名密钥不入库）" >&2
+            exit 1
+          fi
+          KEYSTORE="$RUNNER_TEMP/dsh-mobile.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$KEYSTORE"
+          chmod 600 "$KEYSTORE"
+          {
+            echo "sdk.dir=$ANDROID_HOME"
+            echo "DSH_MOBILE_KEYSTORE_FILE=$KEYSTORE"
+            echo "DSH_MOBILE_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+            echo "DSH_MOBILE_KEY_ALIAS=${KEY_ALIAS:-dshmobile}"
+            echo "DSH_MOBILE_KEY_PASSWORD=$KEY_PASSWORD"
+          } >> app/android/local.properties
+          chmod 600 app/android/local.properties
+
+      - name: Run JVM unit tests
+        working-directory: app/android
+        run: ./gradlew :app:testReleaseUnitTest --no-daemon --stacktrace
+
+      - name: Build release APK
+        working-directory: app/android
+        run: |
+          set -euo pipefail
+          ./gradlew :app:assembleRelease --no-daemon --stacktrace \
+            -PversionCode=${{ steps.version.outputs.code }} \
+            -PversionName=${{ steps.version.outputs.name }}
+
+      - name: Verify APK gates (aapt2 / apksigner / sha256)
+        env:
+          EXPECTED_CERT_SHA256: ${{ secrets.ANDROID_CERT_SHA256 }}
+        run: |
+          bash scripts/verify-apk.sh app/android/app/build/outputs/apk/release/app-release.apk | tee /tmp/apk-verify.log
+          echo "### APK 门禁" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/apk-verify.log >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload APK artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-mobile-apk-${{ steps.version.outputs.name }}
+          path: app/android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create GitHub Release (tag v*)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          SRC="app/android/app/build/outputs/apk/release/app-release.apk"
+          APK="dsh-mobile-${TAG}.apk"
+          cp "$SRC" "$APK"
+          sha256sum "$APK" | tee "${APK}.sha256"
+          NOTES="DSH Mobile ${TAG}
+          
+          - 原生 Kotlin + Jetpack Compose 客户端（arm64-v8a，Android 12+）
+          - 附件：dsh-mobile-${TAG}.apk 与 .sha256 校验文件
+          - 安装前请核对 SHA-256；签名固定，可直接覆盖升级。"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" "${APK}.sha256" --clobber
+          else
+            gh release create "$TAG" "$APK" "${APK}.sha256" \
+              --title "DSH Mobile ${TAG}" \
+              --notes "$NOTES"
+          fi

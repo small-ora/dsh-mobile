@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.tgz
+.ai/dsh-mobile/evidence/
+.ai/dsh-mobile/*.local.md
+app/android/.gradle/
+app/android/build/
+app/android/app/build/
+app/android/local.properties
+.DS_Store
+*.log
+
+# 本地流程产物（勘察/验收/证据，不公开）
+.ai/
+
+# 发布签名密钥不入库（本地 local.properties / CI secrets 注入）
+app/android/keystore/

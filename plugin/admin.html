@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DSH Mobile · 主机面板</title>
+    <style>
+      :root {
+        --bg: #ffffff;
+        --surface: #f5f6f7;
+        --text: #1a1a1a;
+        --muted: #8b8b8b;
+        --line: #ececec;
+        --blue: #4d6bfe;
+        --blue-weak: #eef1ff;
+        --green: #1a7f37;
+        --red: #c62828;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+      body {
+        font: 15px/1.55 system-ui, -apple-system, "Segoe UI", "Noto Sans CJK SC", sans-serif;
+        padding: 20px 18px 32px;
+        max-width: 720px;
+        margin: 0 auto;
+      }
+      h1 { font-size: 17px; font-weight: 600; margin: 0 0 2px; }
+      .sub { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+      section { margin: 0 0 22px; }
+      h2 {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--muted);
+        margin: 0 0 8px;
+        letter-spacing: 0.02em;
+      }
+      .rows { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 11px 14px;
+        border-top: 1px solid var(--line);
+        min-height: 44px;
+      }
+      .row:first-child { border-top: none; }
+      .row .k { color: var(--muted); font-size: 13px; flex: 0 0 108px; }
+      .row .v { flex: 1 1 auto; min-width: 0; word-break: break-all; font-size: 14px; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 7px; background: var(--muted); }
+      .dot.ok { background: var(--green); }
+      .dot.bad { background: var(--red); }
+      code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+      .muted { color: var(--muted); }
+      .note { color: var(--muted); font-size: 13px; margin: 8px 2px 0; }
+      .password { font-size: 20px; font-weight: 600; letter-spacing: 0.14em; }
+      button {
+        font: 500 13px/1 system-ui, sans-serif;
+        color: var(--text);
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        padding: 8px 12px;
+        cursor: pointer;
+      }
+      button:hover { background: var(--surface); }
+      button.primary { color: #ffffff; background: var(--blue); border-color: var(--blue); }
+      button.primary:hover { filter: brightness(1.04); }
+      .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+      pre.logs {
+        margin: 0;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--surface);
+        max-height: 280px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+        color: #333333;
+      }
+      .banner {
+        display: none;
+        border: 1px solid #f0c8c8;
+        background: #fff5f5;
+        color: var(--red);
+        border-radius: 12px;
+        padding: 10px 14px;
+        margin: 0 0 16px;
+        font-size: 13px;
+      }
+      .banner.show { display: block; }
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%);
+        background: #1a1a1a;
+        color: #ffffff;
+        font-size: 13px;
+        padding: 9px 16px;
+        border-radius: 10px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 150ms ease;
+      }
+      .toast.show { opacity: 1; }
+      .copy { flex: 0 0 auto; }
+    </style>
+  </head>
+  <body>
+    <h1>DSH Mobile</h1>
+    <p class="sub">DSH 移动端网关主机面板 · 本页仅供主机侧查看</p>
+
+    <div id="banner" class="banner" role="alert"></div>
+
+    <section>
+      <h2>网关状态</h2>
+      <div class="rows">
+        <div class="row"><span class="k">运行状态</span><span class="v" id="gw-running"><span class="dot"></span>检测中…</span></div>
+        <div class="row"><span class="k">监听</span><span class="v mono" id="gw-listen">—</span></div>
+        <div class="row"><span class="k">上游 DSH</span><span class="v" id="gw-upstream">—</span></div>
+        <div class="row"><span class="k">版本</span><span class="v mono" id="gw-version">—</span></div>
+        <div class="row"><span class="k">重启次数</span><span class="v" id="gw-restarts">—</span></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>连接地址</h2>
+      <div class="rows" id="lan-rows">
+        <div class="row"><span class="k">地址</span><span class="v muted">加载中…</span></div>
+      </div>
+      <p class="note">App 连接局域网地址；公网由你自己的 Cloudflare 通道转发到本机网关端口。</p>
+    </section>
+
+    <section>
+      <h2>初始口令</h2>
+      <div class="rows">
+        <div class="row">
+          <span class="k">口令</span>
+          <span class="v"><span class="password mono" id="initial-password">—</span></span>
+          <button class="copy" id="copy-password" type="button">复制</button>
+        </div>
+      </div>
+      <p class="note" id="password-note">首次登录后请尽快修改口令；修改后本处不再显示。</p>
+    </section>
+
+    <section>
+      <h2>远程访问</h2>
+      <div class="rows">
+        <div class="row"><span class="k">转发目标</span><span class="v mono" id="remote-target">—</span></div>
+        <div class="row"><span class="k">说明</span><span class="v" id="remote-note">—</span></div>
+      </div>
+      <p class="note">网关不安装、不管理 cloudflared，也不保存任何 Cloudflare 凭据；公网暴露时请务必使用强口令。</p>
+    </section>
+
+    <section>
+      <h2>操作</h2>
+      <div class="actions">
+        <button type="button" id="btn-refresh-cookie">刷新上游 Cookie</button>
+        <button type="button" id="btn-restart">重启网关</button>
+        <button type="button" id="btn-refresh" class="primary">刷新本页数据</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>网关日志（尾部）</h2>
+      <pre class="logs" id="logs">暂无日志</pre>
+    </section>
+
+    <div class="toast" id="toast"></div>
+    <script src="/mobile/admin.js"></script>
+  </body>
+</html>
