@@ -79,6 +79,7 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
     val modelCatalog by vm.models.collectAsStateWithLifecycle()
     val thinkSeconds by vm.thinkSeconds.collectAsStateWithLifecycle()
     val permissionOverride by vm.permissionOverride.collectAsStateWithLifecycle()
+    val queueBusyIds by vm.queueBusyIds.collectAsStateWithLifecycle()
 
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
@@ -299,7 +300,12 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
                     }
                 }
             }
-            QueuedMessagesRow(queued = state.queued)
+            QueuedMessagesRow(
+                queued = state.queued,
+                busyIds = queueBusyIds,
+                onSteer = { vm.steerQueued(it) },
+                onRemove = { vm.removeQueued(it) },
+            )
             ChatInputBar(
                 draft = draft,
                 onDraftChange = { vm.onDraftChange(it) },

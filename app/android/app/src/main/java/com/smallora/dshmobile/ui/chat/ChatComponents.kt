@@ -1048,7 +1048,12 @@ internal fun ChatInputBar(
 
 /** 输入区上方的排队消息：默认收起为「排队 N 条 ▾」，展开只读列出每条文本（图片显示 [图片]）。 */
 @Composable
-internal fun QueuedMessagesRow(queued: List<QueuedMessage>) {
+internal fun QueuedMessagesRow(
+    queued: List<QueuedMessage>,
+    busyIds: Set<String> = emptySet(),
+    onSteer: (String) -> Unit = {},
+    onRemove: (String) -> Unit = {},
+) {
     if (queued.isEmpty()) return
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
@@ -1083,13 +1088,42 @@ internal fun QueuedMessagesRow(queued: List<QueuedMessage>) {
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 queued.forEach { message ->
-                    Text(
-                        text = queuedMessageLabel(message),
-                        style = typography.labelSmall,
-                        color = colors.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    val itemId = message.id
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = queuedMessageLabel(message),
+                            style = typography.labelSmall,
+                            color = colors.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        // id 缺失（无法定位队列项）时不显示操作按钮
+                        if (itemId != null) {
+                            val busy = itemId in busyIds
+                            Text(
+                                text = "插队",
+                                style = typography.labelMedium,
+                                color = if (busy) colors.onSurfaceVariant else colors.primary,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable(enabled = !busy) { onSteer(itemId) }
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                            Text(
+                                text = "删除",
+                                style = typography.labelMedium,
+                                color = if (busy) colors.onSurfaceVariant else colors.error,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable(enabled = !busy) { onRemove(itemId) }
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
                 }
             }
         }

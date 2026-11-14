@@ -25,6 +25,8 @@ class QueuePermissionCommandTest {
         var catalog: JSONObject? = null
         var commandList: JSONArray = JSONArray()
         var execute: () -> JSONObject = { JSONObject().put("executed", true) }
+        var updateQueueThrows = false
+        var updateQueueResponse: (JSONObject) -> JSONObject = { JSONObject() }
 
         override suspend fun rpc(method: String, args: JSONObject): JSONObject {
             calls.add(method)
@@ -33,6 +35,10 @@ class QueuePermissionCommandTest {
                 "session/projections" -> projections ?: JSONObject()
                 "permissionPresets/catalog" -> catalog ?: JSONObject()
                 "commands/execute" -> execute()
+                "session/updateQueue" -> {
+                    if (updateQueueThrows) throw ApiException("queue-update-failed", "更新队列失败")
+                    updateQueueResponse(args)
+                }
                 "session/prompt" -> JSONObject().put("ok", true)
                 else -> JSONObject()
             }
@@ -99,12 +105,15 @@ class QueuePermissionCommandTest {
         val queued = Json.parseQueuedMessages(projectionsWithInbox().projectionValues())
         assertEquals(3, queued.size)
         assertEquals("m1", queued[0].key)
+        assertEquals("m1", queued[0].id)
         assertEquals("排队一", queued[0].text)
         assertTrue(queued[0].images.isEmpty())
+        assertEquals("m2", queued[1].id)
         assertEquals("看图", queued[1].text)
         assertEquals(listOf("data:image/png;base64,AAAA"), queued[1].images)
-        // next-step 在 next-turn 之后；无 id 时用 section:index 兜底
+        // next-step 在 next-turn 之后；无 id 时用 section:index 兜底，且 id 为 null（不可操作）
         assertEquals("inbox:next-step:0", queued[2].key)
+        assertNull(queued[2].id)
         assertEquals("下一步", queued[2].text)
     }
 
@@ -233,6 +242,51 @@ class QueuePermissionCommandTest {
         }
         assertEquals(0, api.count("commands/execute"))
         assertEquals(1, api.count("session/prompt"))
+    }
+
+    @Test
+    fun steerQueuedSendsUpdateQueueAndRefreshes() {
+        val api = FakeApi().apply { projections = projectionsWithInbox() }
+        val repo = repo(api)
+        val ok = kotlinx.coroutines.runBlocking { repo.steerQueued("s1", "m1") }
+        assertTrue(ok)
+        val request = api.argsByMethod["session/updateQueue"]?.objOrNull("request")
+        assertEquals("s1", request?.strOrNull("sessionId"))
+        assertEquals("m1", request?.strOrNull("itemId"))
+        assertEquals("steer", request?.objOrNull("action")?.strOrNull("kind"))
+        // 成功后刷新队列（session/projections 被调用）
+        assertTrue(api.count("session/projections") >= 1)
+        assertEquals(3, repo.chatState("s1").value.queued.size)
+    }
+
+    @Test
+    fun removeQueuedSendsRemoveActionAndRefreshes() {
+        val api = FakeApi().apply { projections = projectionsWithInbox() }
+        val repo = repo(api)
+        val ok = kotlinx.coroutines.runBlocking { repo.removeQueued("s1", "m2") }
+        assertTrue(ok)
+        val request = api.argsByMethod["session/updateQueue"]?.objOrNull("request")
+        assertEquals("s1", request?.strOrNull("sessionId"))
+        assertEquals("m2", request?.strOrNull("itemId"))
+        assertEquals("remove", request?.objOrNull("action")?.strOrNull("kind"))
+        assertTrue(api.count("session/projections") >= 1)
+    }
+
+    @Test
+    fun queueActionsReturnFalseAndKeepQueueOnFailure() {
+        val api = FakeApi().apply { projections = projectionsWithInbox() }
+        val repo = repo(api)
+        kotlinx.coroutines.runBlocking { repo.refreshQueue("s1") }
+        assertEquals(3, repo.chatState("s1").value.queued.size)
+
+        api.updateQueueThrows = true
+        val failedSteer = kotlinx.coroutines.runBlocking { repo.steerQueued("s1", "m1") }
+        val failedRemove = kotlinx.coroutines.runBlocking { repo.removeQueued("s1", "m2") }
+        assertFalse(failedSteer)
+        assertFalse(failedRemove)
+        // 失败不应触发额外刷新，旧队列保持
+        assertEquals("失败不刷新队列", 1, api.count("session/projections"))
+        assertEquals(3, repo.chatState("s1").value.queued.size)
     }
 
     @Test

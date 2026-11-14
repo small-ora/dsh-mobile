@@ -58,6 +58,10 @@ class ChatViewModel(
     private val _busyEventIds = MutableStateFlow<Set<String>>(emptySet())
     val busyEventIds: StateFlow<Set<String>> = _busyEventIds.asStateFlow()
 
+    /** 正在插队/删除的排队消息 id（按钮防重复点击）。 */
+    private val _queueBusyIds = MutableStateFlow<Set<String>>(emptySet())
+    val queueBusyIds: StateFlow<Set<String>> = _queueBusyIds.asStateFlow()
+
     private val _toast = MutableStateFlow<String?>(null)
     val toast: StateFlow<String?> = _toast.asStateFlow()
 
@@ -244,6 +248,26 @@ class ChatViewModel(
             val ok = runCatching { repo.answer(eventId, outcome) }.getOrDefault(false)
             if (!ok) _toast.value = "提交失败，问题可能已失效"
             _busyEventIds.update { it - eventId }
+        }
+    }
+
+    /** 排队消息「插队」：成功后 core 刷新队列，数量实时更新。 */
+    fun steerQueued(itemId: String) = updateQueued(itemId, successMessage = "已插队") {
+        repo.steerQueued(sessionId, itemId)
+    }
+
+    /** 排队消息「删除」。 */
+    fun removeQueued(itemId: String) = updateQueued(itemId, successMessage = "已删除") {
+        repo.removeQueued(sessionId, itemId)
+    }
+
+    private fun updateQueued(itemId: String, successMessage: String, action: suspend () -> Boolean) {
+        if (itemId in _queueBusyIds.value) return
+        _queueBusyIds.update { it + itemId }
+        viewModelScope.launch {
+            val ok = runCatching { action() }.getOrDefault(false)
+            _toast.value = if (ok) successMessage else "操作失败"
+            _queueBusyIds.update { it - itemId }
         }
     }
 
