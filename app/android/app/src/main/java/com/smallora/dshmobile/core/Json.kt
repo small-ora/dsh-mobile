@@ -308,11 +308,13 @@ object Json {
                 val text = contentPlainText(content)
                 val images = contentImages(content)
                 if (text.isBlank() && images.isEmpty()) continue
+                val messageId = item.strOrNull("id")
                 out.add(
                     QueuedMessage(
-                        key = item.strOrNull("id") ?: "inbox:$section:$index",
+                        key = messageId ?: "inbox:$section:$index",
                         text = text,
                         images = images,
+                        id = messageId,
                     ),
                 )
             }

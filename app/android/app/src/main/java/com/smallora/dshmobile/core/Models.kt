@@ -82,8 +82,16 @@ data class ConnState(val online: Boolean, val server: String?, val error: String
 /** 工作区（= 会话 cwd 的不同目录）：App 会话列表按工作区筛选。 */
 data class WorkspaceRow(val path: String, val name: String, val count: Int)
 
-/** 排队中的用户消息（inbox next-turn / next-step 合并；key 用作稳定列表 key）。 */
-data class QueuedMessage(val key: String, val text: String, val images: List<String>)
+/**
+ * 排队中的用户消息（inbox next-turn / next-step 合并；key 用作稳定列表 key）。
+ * `id` 是 inbox UserMessage 的真实 id，用于插队/删除（可能缺失，缺失时不可操作）。
+ */
+data class QueuedMessage(
+    val key: String,
+    val text: String,
+    val images: List<String>,
+    val id: String? = null,
+)
 
 /** 权限预设选项（permissionPresets/catalog）。 */
 data class PermissionOption(val value: String, val name: String)

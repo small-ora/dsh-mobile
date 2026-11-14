@@ -27,9 +27,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -61,6 +63,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
  * 顶栏 44dp（返回/标题/运行态/模型/更多），消息区行式列表，审批/提问/目标卡片固定在输入框上方，
  * 输入框圆角 22dp + 蓝色圆形发送键，运行中显示停止与排队/插队。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
     val vm: ChatViewModel = viewModel(
@@ -84,6 +87,7 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
 
     var showModels by remember { mutableStateOf(false) }
     var showPermissions by remember { mutableStateOf(false) }
+    var showFunctions by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var stickToBottom by remember { mutableStateOf(true) }
     var commandMenuDismissed by remember { mutableStateOf(false) }
@@ -122,8 +126,8 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
     LaunchedEffect(draft) { commandMenuDismissed = false }
     val showCommandMenu = commandQuery != null && matchedCommands.isNotEmpty() && !commandMenuDismissed
     val permissionCurrent = permissionOverride ?: state.permission?.current
-    // 有 permission 数据就显示 chip（current 为 null 时用「权限」占位，仍可点开选择）
-    val permissionLabel = permissionOverride ?: state.permission?.let { it.current ?: "权限" }
+    // 有 permission 数据才提供入口（current 为 null 时副标题显示「未提供」占位）
+    val permissionLabel = permissionOverride ?: state.permission?.current
 
     // 用户上滑到顶部时自动加载更早历史（直接读 StateFlow.value，避免闭包捕获旧状态）
     val stateFlow = vm.state
@@ -164,6 +168,8 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
     val currentModelName = modelCatalog.firstOrNull {
         state.selection != null && it.provider == state.selection?.provider && it.model == state.selection?.model
     }?.name ?: state.selection?.model ?: "模型"
+    val effortLabel = state.selection?.reasoningEffort?.let { reasoningLabel(it) } ?: "自动"
+    val modelSubtitle = "$currentModelName · $effortLabel"
 
     Column(
         modifier = Modifier
@@ -173,13 +179,9 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
     ) {
         ChatTopBar(
             state = state,
-            modelLabel = currentModelName,
-            permissionCurrent = permissionLabel,
-            onPermissionClick = { showPermissions = true },
             menuOpen = menuOpen,
             onMenuOpenChange = { menuOpen = it },
             onBack = { nav.back() },
-            onOpenModels = { showModels = true },
             onLoadOlder = { vm.loadOlder() },
             onFork = {
                 vm.fork { newSessionId ->
@@ -303,10 +305,7 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
                 onDraftChange = { vm.onDraftChange(it) },
                 attachments = attachments,
                 onRemoveAttachment = { vm.removeAttachment(it) },
-                onPickImages = {
-                    runCatching { imagePicker.launch(arrayOf("image/*")) }
-                        .onFailure { vm.showToast("无法打开系统图片选择器") }
-                },
+                onOpenFunctions = { showFunctions = true },
                 running = state.running,
                 steer = steer,
                 onSteerChange = { vm.setSteer(it) },
@@ -330,6 +329,35 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
             onPick = { vm.selectModel(it) },
             onDismiss = { showModels = false },
         )
+    }
+
+    if (showFunctions) {
+        ModalBottomSheet(
+            onDismissRequest = { showFunctions = false },
+            containerColor = colors.surface,
+        ) {
+            FunctionSheetContent(
+                modelSubtitle = modelSubtitle,
+                permissionSubtitle = permissionLabel ?: "未提供",
+                onModel = {
+                    showFunctions = false
+                    showModels = true
+                },
+                onPermission = {
+                    showFunctions = false
+                    if (state.permission != null) {
+                        showPermissions = true
+                    } else {
+                        vm.showToast("暂无权限数据")
+                    }
+                },
+                onImages = {
+                    showFunctions = false
+                    runCatching { imagePicker.launch(arrayOf("image/*")) }
+                        .onFailure { vm.showToast("无法打开系统图片选择器") }
+                },
+            )
+        }
     }
 
     val permission = state.permission
@@ -356,13 +384,9 @@ private fun displayKey(item: DisplayItem): String = when (item) {
 @Composable
 private fun ChatTopBar(
     state: ChatUiState,
-    modelLabel: String,
-    permissionCurrent: String?,
-    onPermissionClick: () -> Unit,
     menuOpen: Boolean,
     onMenuOpenChange: (Boolean) -> Unit,
     onBack: () -> Unit,
-    onOpenModels: () -> Unit,
     onLoadOlder: () -> Unit,
     onFork: () -> Unit,
 ) {
@@ -385,43 +409,14 @@ private fun ChatTopBar(
         ) {
             Text("←", style = typography.titleLarge, color = colors.onSurface)
         }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = state.title.ifBlank { "对话" },
-                style = typography.titleMedium,
-                color = colors.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (state.running) {
-                Text("正在生成…", style = typography.labelSmall, color = colors.primary)
-            }
-        }
         Text(
-            text = modelLabel,
-            style = typography.labelMedium,
-            color = colors.onSurfaceVariant,
+            text = state.title.ifBlank { "对话" },
+            style = typography.titleMedium,
+            color = colors.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .clickable(onClick = onOpenModels)
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+            modifier = Modifier.weight(1f).padding(start = 4.dp, end = 8.dp),
         )
-        if (!permissionCurrent.isNullOrBlank()) {
-            Text(
-                text = permissionCurrent,
-                style = typography.labelSmall,
-                color = colors.onSurfaceVariant,
-                maxLines = 1,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(colors.surfaceVariant)
-                    .clickable(onClick = onPermissionClick)
-                    .padding(horizontal = 6.dp, vertical = 3.dp),
-            )
-            Spacer(Modifier.width(2.dp))
-        }
         Box {
             Box(
                 modifier = Modifier

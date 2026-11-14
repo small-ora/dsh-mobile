@@ -379,6 +379,36 @@ class SessionRepository(
         }
     }
 
+    /** 把一条排队消息改为「插队」（立即执行）：session/updateQueue action={kind:'steer'}。 */
+    suspend fun steerQueued(sessionId: String, itemId: String): Boolean {
+        return updateQueue(sessionId, itemId, JSONObject().put("kind", "steer"))
+    }
+
+    /** 从队列删除一条排队消息：session/updateQueue action={kind:'remove'}。 */
+    suspend fun removeQueued(sessionId: String, itemId: String): Boolean {
+        return updateQueue(sessionId, itemId, JSONObject().put("kind", "remove"))
+    }
+
+    private suspend fun updateQueue(sessionId: String, itemId: String, action: JSONObject): Boolean {
+        return try {
+            api.rpc(
+                "session/updateQueue",
+                JSONObject().put(
+                    "request",
+                    JSONObject()
+                        .put("sessionId", sessionId)
+                        .put("itemId", itemId)
+                        .put("action", action),
+                ),
+            )
+            // 成功后刷新队列；刷新失败保持旧队列（不把操作判为失败）
+            runCatching { refreshQueue(sessionId) }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private suspend fun fetchProjectionValues(sessionId: String): JSONObject? {
         return try {
             val value = api.rpc(

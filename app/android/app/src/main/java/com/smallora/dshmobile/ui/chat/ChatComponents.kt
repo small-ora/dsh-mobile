@@ -864,7 +864,7 @@ internal fun ChatInputBar(
     onDraftChange: (String) -> Unit,
     attachments: List<String>,
     onRemoveAttachment: (Int) -> Unit,
-    onPickImages: () -> Unit,
+    onOpenFunctions: () -> Unit,
     running: Boolean,
     steer: Boolean,
     onSteerChange: (Boolean) -> Unit,
@@ -946,7 +946,7 @@ internal fun ChatInputBar(
                     .size(36.dp)
                     .clip(CircleShape)
                     .border(1.dp, colors.outlineVariant, CircleShape)
-                    .clickable(onClick = onPickImages),
+                    .clickable(onClick = onOpenFunctions),
                 contentAlignment = Alignment.Center,
             ) {
                 Text("+", style = typography.titleMedium, color = colors.onSurfaceVariant)
@@ -1174,9 +1174,79 @@ internal fun PermissionDialog(
     )
 }
 
+// ------------------------------------------------------------------ 「＋」功能菜单
+
+/** 输入框「＋」弹出的功能列表（ModalBottomSheet 内容）：模型档位 / 权限 / 发送图片。 */
+@Composable
+internal fun FunctionSheetContent(
+    modelSubtitle: String,
+    permissionSubtitle: String,
+    onModel: () -> Unit,
+    onPermission: () -> Unit,
+    onImages: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val typography = MaterialTheme.typography
+    Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+        Text(
+            text = "功能",
+            style = typography.labelMedium,
+            color = colors.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 6.dp),
+        )
+        FunctionMenuItem(title = "模型与思考档位", subtitle = modelSubtitle, onClick = onModel)
+        FunctionMenuItem(title = "权限", subtitle = permissionSubtitle, onClick = onPermission)
+        FunctionMenuItem(
+            title = "发送图片",
+            subtitle = "选择图片随消息一起发送",
+            onClick = onImages,
+            showDivider = false,
+        )
+    }
+}
+
+@Composable
+private fun FunctionMenuItem(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    showDivider: Boolean = true,
+) {
+    val colors = MaterialTheme.colorScheme
+    val typography = MaterialTheme.typography
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = typography.bodyLarge, color = colors.onSurface)
+                Text(
+                    text = subtitle,
+                    style = typography.labelSmall,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text("›", style = typography.labelLarge, color = colors.onSurfaceVariant)
+        }
+        if (showDivider) {
+            HorizontalDivider(
+                thickness = 1.dp,
+                color = colors.outlineVariant,
+                modifier = Modifier.padding(start = 16.dp),
+            )
+        }
+    }
+}
+
 // ------------------------------------------------------------------ 模型选择
 
-private fun reasoningLabel(effort: String): String = when (effort.lowercase()) {
+internal fun reasoningLabel(effort: String): String = when (effort.lowercase()) {
     "low", "minimal" -> "低"
     "medium", "normal" -> "中"
     "high" -> "高"
