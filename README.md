@@ -27,7 +27,7 @@ dsh-mobile-plugin：/mobile 主机面板 + 自动拉起网关 + 侧边栏入口
 | 路径 | 说明 |
 | --- | --- |
 | `gateway/` | 独立网关（Node ≥20，零 npm 运行时依赖） |
-| `plugin/` | DSH bundle 插件（侧边栏入口 + `/mobile` 主机面板 + 网关自启） |
+| `plugin/` | DSH bundle 插件（侧边栏入口 + `/mobile` 主机面板：状态/初始口令/设备管理/日志 + 网关自启） |
 | `app/android/` | 原生 Android App（Kotlin + Compose，arm64-v8a，minSdk 31） |
 | `tests/` | 网关 `node:test` 测试 |
 | `scripts/` | 语法门禁、E2E、构建脚本 |
@@ -47,7 +47,7 @@ dsh plugin --profile web add <repo>/dist/dsh-mobile-plugin-0.1.0.tgz
 systemctl --user restart dsh-web
 
 # 4) 打开 DSH → 侧边栏「Remote」→ 主机面板
-#    可看到：局域网地址、初始口令、网关状态、公网访问说明
+#    可看到：局域网地址、初始口令、网关状态、事件通道、设备管理（查看在线状态/撤销设备）
 #    App 首次用初始口令登录后，会强制要求修改口令（服务端同样拦截，未改密不能调用业务接口）
 ```
 
