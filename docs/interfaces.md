@@ -113,7 +113,7 @@
 
 | method | args | 用途 |
 | --- | --- | --- |
-| `session/list` | `{_request:{}}` | 会话列表；items 含 projections（title/goal/todos/modelSelection/userQuestions/subagentCatalog/tokenUsage…）。**注意：只有 list 用 `_request`** |
+| `session/list` | `{_request:{}}` | 会话列表；items 含 projections（title/goal/todos/modelSelection/userQuestions/subagentCatalog/tokenUsage…）与 `origin` / `parentSessionId`。子 Agent 会话 = `origin:'subagent'`（**App 必须过滤**）；`session/fork` 分支会话也带 `parentSessionId` 但无 `origin`，**不能**按父会话过滤。**注意：只有 list 用 `_request`** |
 | `session/modelCatalog` | `{}` | 模型目录（无参数） |
 | `session/follow` | **流**：`{request:{address:{kind:'session',sessionId}, assistantStream:true, maxMessages?, turnWindow?}}` | 打开快照 + 实时事件；streamId 自定 |
 | `session/page` | `{request:{address:{kind:'session',sessionId}, throughSeq, beforeSeq?, maxMessages?, turnWindow?}}` | 向上翻历史 |
@@ -212,7 +212,8 @@ data class ModelOption(val provider: String, val model: String, val name: String
 data class SessionRow(
   val id: String, val title: String?, val preview: String?, val updatedAt: Long,
   val running: Boolean, val blank: Boolean, val parentSessionId: String?, val cwd: String?,
-  val goal: Goal?, val todos: List<Todo>, val selection: ModelSelection?, val agentAvailable: Boolean)
+  val goal: Goal?, val todos: List<Todo>, val selection: ModelSelection?, val agentAvailable: Boolean,
+  val origin: String? = null)      // DSH session/list item.origin；子 Agent 会话为 "subagent"
 data class QuestionOption(val label: String, val description: String?)
 data class Question(val id: String, val question: String, val header: String?, val detail: String?,
   val options: List<QuestionOption>, val multiSelect: Boolean)
@@ -240,6 +241,8 @@ data class ChatUiState(
   val goal: Goal?, val todos: List<Todo>, val selection: ModelSelection?,
   val hasMore: Boolean, val loadingOlder: Boolean, val error: String?)
 ```
+
+**子 Agent 会话过滤**：DSH `session/list` 会同时返回子 Agent 的 child session（`origin: "subagent"`，且 `parentSessionId` 指向父会话）。App 侧用 `SessionRow.isSubagent`（**仅** `origin == "subagent"`）判定，**会话列表 / 工作区计数 / `session/search` 结果都不展示它们**；人类根会话行为不变。注意：`session/fork` 产生的**分支会话**同样带 `parentSessionId` 但没有 `origin`，它是人类要用的分支对话，**必须继续展示**，不能用 `parentSessionId` 判定。
 
 ### 5.3 Repository / Client 契约（core 实现；ui 只调用）
 
