@@ -2,7 +2,7 @@
 
 本项目按 `v0.1.x` 迭代；每个 GitHub Release 附带 arm64 APK 与插件 tgz。
 
-## 未发布
+## v0.1.10（2026-11-15）
 
 **修复：对话列表展示子 Agent 会话**
 - 根因：DSH `session/list` 会把子 Agent 的 child session（`origin: "subagent"` + `parentSessionId`）与人类根会话一起返回，App 未过滤，导致「对话」列表、工作区计数、搜索结果出现子 Agent 会话（本机实测 85 条中 40 条为子 Agent）。
@@ -13,6 +13,8 @@
 - 根因：外层 `Scaffold`（`ui/App.kt`）已为整个 App 消费系统栏安全区，内层 `SessionsScreen` 的 `Scaffold` 又按默认 `contentWindowInsets` 再消费一次 → 顶部叠加两个状态栏高度（本机状态栏 140px）。
 - 修复：内层 Scaffold 设 `contentWindowInsets = WindowInsets(0, 0, 0, 0)`，系统栏安全区只由外层统一处理（底部导航栏内边距同步修正）。
 - 证据：真机顶栏分隔线 y=449 → 309（状态栏 140 + 52dp 顶栏 169 = 309），与聊天页（44dp 顶栏）一致；其它页面无变化；Android 单测/网关门禁全绿。
+
+- 插件/网关功能无变化，版本号随 Release 同步为 `0.1.10`（Release 资产含插件 tgz）。
 
 ## v0.1.9（2026-11-15）
 

@@ -374,7 +374,7 @@ class AppNavState { var route: Route; fun go(route: Route); fun back() }
 `invalid-password`、`rate-limited`、`locked`、`unauthorized`、`forbidden-path`、`method-not-allowed`、`upstream-unavailable`、`stream-not-found`、`body-too-large`、`conflict`、`password-change-required`。
 
 
-## 9. 契约变更记录（v0.1.2 → v0.1.9，as-built）
+## 9. 契约变更记录（v0.1.2 → v0.1.10，as-built）
 
 ### 9.1 新增接口
 
@@ -436,3 +436,11 @@ Repository 新增：`fetchAttachment(sessionId, attachmentId): Pair<String,ByteA
 ### 9.4 错误码补充
 
 `password-change-required`（403）、`attachment-not-found`（404）、`attachment-unsupported`（503）、`invalid-reference`（400）、`device-not-found`（404）。
+
+### 9.5 v0.1.10 App 内部契约补充
+
+- `SessionRow` 新增 `origin: String?`（取自 `session/list` item.origin）；派生 `isSubagent`（仅 `origin == "subagent"`），
+  会话列表 / 工作区计数 / `session/search` 结果均排除子 Agent 会话。
+- **fork 例外**：`session/fork` 产生的分支会话带 `parentSessionId` 但无 `origin`，属于人类对话，继续展示；
+  不得用 `parentSessionId` 判定子 Agent。
+- 无 HTTP/网关契约变化；「对话」页顶部空白修复为纯 Compose 布局（insets 去重），无契约影响。

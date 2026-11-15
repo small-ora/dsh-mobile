@@ -6,9 +6,9 @@
 
 | 项 | 当前 |
 | --- | --- |
-| 项目 / App / 插件 | **v0.1.9**（App `0.1.9`，插件 `0.1.9`，网关 `0.1.9`） |
-| 最新 Release | https://github.com/small-ora/dsh-mobile/releases/tag/v0.1.9 |
-| 发布资产 | `dsh-mobile-v0.1.9.apk`（arm64-v8a，Android 12+）、`dsh-mobile-plugin-0.1.9.tgz`、各自 `.sha256` |
+| 项目 / App / 插件 | **v0.1.10**（App `0.1.10`，插件 `0.1.10`，网关 `0.1.10`） |
+| 最新 Release | https://github.com/small-ora/dsh-mobile/releases/tag/v0.1.10 |
+| 发布资产 | `dsh-mobile-v0.1.10.apk`（arm64-v8a，Android 12+）、`dsh-mobile-plugin-0.1.10.tgz`、各自 `.sha256` |
 
 ## 组件状态
 
