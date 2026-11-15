@@ -805,6 +805,7 @@ internal fun GoalBar(
     onPause: () -> Unit,
     onResume: () -> Unit,
     onComplete: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
@@ -824,6 +825,17 @@ internal fun GoalBar(
                     text = goalPhaseLabel(goal.phase),
                     style = typography.labelSmall,
                     color = if (goal.phase == "active") colors.primary else colors.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(6.dp))
+                // 手动隐藏目标卡片（完成的目标会自动隐藏；这里覆盖进行中/暂停/受阻时的遮挡问题）
+                Text(
+                    text = "✕",
+                    style = typography.labelMedium,
+                    color = colors.onSurfaceVariant,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(onClickLabel = "隐藏目标", onClick = onDismiss)
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
             Text(

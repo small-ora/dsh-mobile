@@ -410,6 +410,7 @@ data class ChatUiState(
   val permission: PermissionState?,         // current + options
   val commands: List<CommandInfo>,          // 斜杠指令
   val cwd: String?,                         // 会话工作目录（Markdown 相对图片解析）
+  val dismissedGoalId: String? = null,      // 用户手动关闭的目标卡片 id（按 goal.id 记住；完成的目标自动隐藏）
 )
 
 sealed interface ImageRef {

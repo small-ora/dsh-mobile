@@ -493,6 +493,14 @@ class SessionRepository(
 
     suspend fun goalComplete(sessionId: String): Boolean = goalAction(sessionId, "complete", "complete")
 
+    /**
+     * 手动关闭目标卡片（按 goal.id 记住）：只影响 UI 展示，不改上游目标状态；
+     * 目标完成时卡片刻由 [shouldShowGoalCard] 自动隐藏，新目标（不同 id）会重新展示。
+     */
+    fun dismissGoal(sessionId: String) {
+        updateChat(sessionId) { it.copy(dismissedGoalId = it.goal?.id) }
+    }
+
     private suspend fun goalAction(sessionId: String, verb: String, phase: String): Boolean {
         val goal = chatState(sessionId).value.goal ?: return false
         return try {

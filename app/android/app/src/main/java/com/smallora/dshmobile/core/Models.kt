@@ -189,6 +189,8 @@ data class ChatUiState(
     val commands: List<CommandInfo> = emptyList(),
     /** 会话工作目录（snapshot.header.cwd 或 sessions 行 cwd）；Markdown 相对图片路径解析用。 */
     val cwd: String? = null,
+    /** 用户手动关闭的目标卡片 id；目标完成（complete）时由 UI 自动隐藏，见 [shouldShowGoalCard]。 */
+    val dismissedGoalId: String? = null,
 )
 
 /**

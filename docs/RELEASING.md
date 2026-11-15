@@ -32,7 +32,7 @@ git push origin v0.1.10
    - 安装 Node 22 + JDK17 + Android SDK 36
    - **网关门禁**：`npm run check && npm test`（26 文件语法 + 51 例 node:test）
    - 从 Actions Secrets 注入签名密钥
-   - `./gradlew :app:testReleaseUnitTest`（138 个 JVM 单测）+ `./gradlew :app:lintRelease`（lint error 阻断）
+   - `./gradlew :app:testReleaseUnitTest`（143 个 JVM 单测）+ `./gradlew :app:lintRelease`（lint error 阻断）
    - `./gradlew :app:assembleRelease -PversionCode -PversionName`
    - `scripts/verify-apk.sh` 门禁：包名 / minSdk31 / targetSdk36 / 仅 arm64 / 非 testOnly / 签名证书 SHA-256
    - `gh release create` 上传 `dsh-mobile-v<ver>.apk` 与 `.sha256`

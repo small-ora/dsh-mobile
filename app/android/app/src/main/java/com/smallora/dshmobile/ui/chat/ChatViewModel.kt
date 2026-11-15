@@ -295,6 +295,9 @@ class ChatViewModel(
     fun resumeGoal() = goalAction { repo.goalResume(sessionId) }
     fun completeGoal() = goalAction { repo.goalComplete(sessionId) }
 
+    /** 手动隐藏目标卡片（完成的目标卡片会自动隐藏，无需调用）。 */
+    fun dismissGoal() = repo.dismissGoal(sessionId)
+
     private fun goalAction(action: suspend () -> Boolean) {
         viewModelScope.launch {
             val ok = runCatching { action() }.getOrDefault(false)

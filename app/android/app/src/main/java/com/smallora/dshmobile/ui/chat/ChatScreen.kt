@@ -55,6 +55,7 @@ import com.smallora.dshmobile.core.AppContainer
 import com.smallora.dshmobile.core.ChatItem
 import com.smallora.dshmobile.core.ChatUiState
 import com.smallora.dshmobile.core.resolveMarkdownImageSrc
+import com.smallora.dshmobile.core.shouldShowGoalCard
 import com.smallora.dshmobile.ui.AppNavState
 import com.smallora.dshmobile.ui.Route
 import kotlinx.coroutines.delay
@@ -287,7 +288,9 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
                         .padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
-            if (pendingForSession.isNotEmpty() || state.goal != null) {
+            // 目标完成（phase=complete）自动隐藏；另可手动关闭，避免卡片长期占位挡住后续内容
+            val visibleGoal = state.goal?.takeIf { shouldShowGoalCard(it, state.dismissedGoalId) }
+            if (pendingForSession.isNotEmpty() || visibleGoal != null) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -309,7 +312,7 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
                             )
                         }
                     }
-                    state.goal?.let { goal ->
+                    visibleGoal?.let { goal ->
                         GoalBar(
                             goal = goal,
                             todos = state.todos,
@@ -317,6 +320,7 @@ fun ChatScreen(sessionId: String, container: AppContainer, nav: AppNavState) {
                             onPause = { vm.pauseGoal() },
                             onResume = { vm.resumeGoal() },
                             onComplete = { vm.completeGoal() },
+                            onDismiss = { vm.dismissGoal() },
                         )
                     }
                 }
