@@ -445,7 +445,7 @@ Repository 新增：`fetchAttachment(sessionId, attachmentId): Pair<String,ByteA
   不得用 `parentSessionId` 判定子 Agent。
 - 无 HTTP/网关契约变化；「对话」页顶部空白修复为纯 Compose 布局（insets 去重），无契约影响。
 
-### 9.6 v0.1.11 App 契约补充（开发中）
+### 9.6 v0.1.11 App 契约补充
 
 - `ChatItem.Tool` 新增 `images: List<ImageRef>`：解析 `tool/result` 的 image 内容块（内联 `data` 或
   `attachment.attachmentId`），UI 在工具结果区按统一图片管线渲染（加载/缓存/全屏预览）。

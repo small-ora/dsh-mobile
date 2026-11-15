@@ -2,7 +2,7 @@
 
 本项目按 `v0.1.x` 迭代；每个 GitHub Release 附带 arm64 APK 与插件 tgz。
 
-## 未发布
+## v0.1.11（2026-11-15）
 
 **修复：搜索在当前主机不可用时的体验**
 - 主机 DSH 未挂载 `session-query` 时 `session/search` 被禁用；App 不再弹英文上游原文，改为中文提示「当前主机未启用会话搜索（需 DSH 挂载 session-query 组件）」，并避免每次输入重复请求。
@@ -21,6 +21,8 @@
 
 **路线图**
 - 明确不再做：iOS/鸿蒙、云中转 relay/E2EE（用户决策 2026-11-15），已从 SPEC/STATUS backlog 移除。
+
+- 插件/网关功能无变化，版本号随 Release 同步为 `0.1.11`（Release 资产含插件 tgz）。
 
 ## v0.1.10（2026-11-15）
 
