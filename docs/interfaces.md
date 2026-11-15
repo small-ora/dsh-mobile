@@ -231,7 +231,7 @@ sealed interface ChatItem { val key: String
   data class Assistant(override val key: String, val text: String, val reasoning: String?,
     val streaming: Boolean, val interrupted: Boolean) : ChatItem
   data class Tool(override val key: String, val name: String, val args: String, val result: String?,
-    val isError: Boolean, val running: Boolean) : ChatItem
+    val isError: Boolean, val running: Boolean, val images: List<ImageRef> = emptyList()) : ChatItem
   data class Notice(override val key: String, val text: String, val kind: String) : ChatItem
 }
 
@@ -374,7 +374,7 @@ class AppNavState { var route: Route; fun go(route: Route); fun back() }
 `invalid-password`、`rate-limited`、`locked`、`unauthorized`、`forbidden-path`、`method-not-allowed`、`upstream-unavailable`、`stream-not-found`、`body-too-large`、`conflict`、`password-change-required`。
 
 
-## 9. 契约变更记录（v0.1.2 → v0.1.10，as-built）
+## 9. 契约变更记录（v0.1.2 → v0.1.11，as-built）
 
 ### 9.1 新增接口
 
@@ -444,3 +444,11 @@ Repository 新增：`fetchAttachment(sessionId, attachmentId): Pair<String,ByteA
 - **fork 例外**：`session/fork` 产生的分支会话带 `parentSessionId` 但无 `origin`，属于人类对话，继续展示；
   不得用 `parentSessionId` 判定子 Agent。
 - 无 HTTP/网关契约变化；「对话」页顶部空白修复为纯 Compose 布局（insets 去重），无契约影响。
+
+### 9.6 v0.1.11 App 契约补充（开发中）
+
+- `ChatItem.Tool` 新增 `images: List<ImageRef>`：解析 `tool/result` 的 image 内容块（内联 `data` 或
+  `attachment.attachmentId`），UI 在工具结果区按统一图片管线渲染（加载/缓存/全屏预览）。
+  `result` 文本改为只取 text 块（不再出现 `[图片]` 占位）。
+- Markdown 图片解析覆盖表格行：表格单元格内 `![alt](src)` 会被抽取渲染，单元格保留 alt（空 alt → `[图片]`）。
+- 搜索不可用（DSH 未挂 `session-query`）为 UI 提示行为，无 HTTP 契约变化。

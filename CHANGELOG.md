@@ -2,6 +2,26 @@
 
 本项目按 `v0.1.x` 迭代；每个 GitHub Release 附带 arm64 APK 与插件 tgz。
 
+## 未发布
+
+**修复：搜索在当前主机不可用时的体验**
+- 主机 DSH 未挂载 `session-query` 时 `session/search` 被禁用；App 不再弹英文上游原文，改为中文提示「当前主机未启用会话搜索（需 DSH 挂载 session-query 组件）」，并避免每次输入重复请求。
+
+**新增：Tool 结果中的图片渲染**
+- `tool/result` 的 image 内容块（内联 `data` / `attachment`）解析为 `ChatItem.Tool.images`，在工具结果区按统一图片管线渲染（加载/缓存/全屏预览）；结果文本只取 text 块，不再显示 `[图片]` 占位。
+
+**新增：Markdown 表格内的图片解析**
+- 表格单元格内 `![alt](src)` 会被抽取并渲染在该表格之后；单元格保留 alt（空 alt → `[图片]`），不再原样显示图片语法。
+
+**工程化（CI/质量）**
+- CI 补网关门禁：`npm run check && npm test`（此前 CI 只跑 Android，51 个网关测试未在 CI 执行）。
+- GitHub Actions 升级：`checkout@v7`、`setup-java@v6`、`cache@v6`、`upload-artifact@v7`，并新增 `setup-node@v7`（修掉 Node20 弃用/`setup-java@v4` 停止维护告警）。
+- versionCode 统一：tag 构建与 `scripts/build-apk.sh` 统一为 `major*10000+minor*100+patch`（0.1.10→110、0.1.11→111），修掉本地 `git describe` 带后缀导致的计算错误。
+- 启用 Android lint 门禁（`abortOnError/checkReleaseBuilds=true` + CI `:app:lintRelease`），并修复 lint 报出的 `InputStream.readNBytes` API 33 兼容问题（minSdk 31）。
+
+**路线图**
+- 明确不再做：iOS/鸿蒙、云中转 relay/E2EE（用户决策 2026-11-15），已从 SPEC/STATUS backlog 移除。
+
 ## v0.1.10（2026-11-15）
 
 **修复：对话列表展示子 Agent 会话**
