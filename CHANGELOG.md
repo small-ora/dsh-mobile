@@ -9,6 +9,11 @@
 - 修复：App core 按 `origin = "subagent"` 判定并隐藏（`SessionRow.isSubagent`）；列表/工作区/搜索三个消费点都过滤。**不按 `parentSessionId` 过滤**：`session/fork` 分支会话同样带父会话 id 但无 `origin`，属于人类对话，继续展示。
 - 证据：新增 `SubagentSessionFilterTest`（6 用例，含 fork 不被误伤回归）；修复前在 BASE `03c9de3` 的临时 worktree 上用同一红测试复现失败、修复后通过；Android JVM 单测 120/120；live DSH 列表 85 → 45 条；真机全量滚动核对 46/46 根会话、0 子 Agent 会话。
 
+**修复：「对话」页顶部多出一条状态栏高度的空白**
+- 根因：外层 `Scaffold`（`ui/App.kt`）已为整个 App 消费系统栏安全区，内层 `SessionsScreen` 的 `Scaffold` 又按默认 `contentWindowInsets` 再消费一次 → 顶部叠加两个状态栏高度（本机状态栏 140px）。
+- 修复：内层 Scaffold 设 `contentWindowInsets = WindowInsets(0, 0, 0, 0)`，系统栏安全区只由外层统一处理（底部导航栏内边距同步修正）。
+- 证据：真机顶栏分隔线 y=449 → 309（状态栏 140 + 52dp 顶栏 169 = 309），与聊天页（44dp 顶栏）一致；其它页面无变化；Android 单测/网关门禁全绿。
+
 ## v0.1.9（2026-11-15）
 
 **图片显示修复**
