@@ -7,7 +7,7 @@
 **修复：对话列表展示子 Agent 会话**
 - 根因：DSH `session/list` 会把子 Agent 的 child session（`origin: "subagent"` + `parentSessionId`）与人类根会话一起返回，App 未过滤，导致「对话」列表、工作区计数、搜索结果出现子 Agent 会话（本机实测 85 条中 40 条为子 Agent）。
 - 修复：App core 按 `origin = "subagent"` 判定并隐藏（`SessionRow.isSubagent`）；列表/工作区/搜索三个消费点都过滤。**不按 `parentSessionId` 过滤**：`session/fork` 分支会话同样带父会话 id 但无 `origin`，属于人类对话，继续展示。
-- 证据：新增 `SubagentSessionFilterTest`（含 fork 不被误伤回归；改前行为测试 4/4 失败 → 改后全绿），Android JVM 单测 120/120；live DSH 列表 85 → 45 条；真机全量滚动核对 46/46 根会话、0 子 Agent 会话。
+- 证据：新增 `SubagentSessionFilterTest`（6 用例，含 fork 不被误伤回归）；修复前在 BASE `03c9de3` 的临时 worktree 上用同一红测试复现失败、修复后通过；Android JVM 单测 120/120；live DSH 列表 85 → 45 条；真机全量滚动核对 46/46 根会话、0 子 Agent 会话。
 
 ## v0.1.9（2026-11-15）
 
