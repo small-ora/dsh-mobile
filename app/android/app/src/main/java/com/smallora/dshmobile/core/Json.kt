@@ -122,6 +122,7 @@ object Json {
             todos = todos,
             selection = selection,
             agentAvailable = item.boolOr("agentAvailable", true),
+            origin = item.strOrNull("origin"),
         )
     }
 

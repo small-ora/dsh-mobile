@@ -60,6 +60,12 @@ class SessionRepository(
     private val chatStates = ConcurrentHashMap<String, MutableStateFlow<ChatUiState>>()
     private val followers = ConcurrentHashMap<String, StreamPump>()
     private val startedSessions = ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * 已识别出的子 Agent 会话 id（只增不减，切换服务器/退出时清空）。
+     * 会话列表已把它们过滤掉，但 `session/search` 只回 id + snippet，需要这份集合二次过滤（SPEC AC5）。
+     */
+    private val subagentSessionIds = ConcurrentHashMap.newKeySet<String>()
     private val cursors = ConcurrentHashMap<String, Long>()
     private val minimumSeqs = ConcurrentHashMap<String, Long>()
     private val refreshing = AtomicBoolean(false)
@@ -187,7 +193,7 @@ class SessionRepository(
                     agentAvailable = false,
                 )
             }
-        }
+        }.filterNot { it.id in subagentSessionIds }
     }
 
     // ---- 会话事件流 ----
@@ -542,6 +548,7 @@ class SessionRepository(
         queuePollers.clear()
         cursors.clear()
         minimumSeqs.clear()
+        subagentSessionIds.clear()
         applySessionRows(emptyList())
         _pending.value = emptyList()
         _modelCatalog.value = emptyList()
@@ -748,7 +755,9 @@ class SessionRepository(
      * （internal 供 JVM 单测注入会话，refresh 也走这里）。
      */
     internal fun applySessionRows(rows: List<SessionRow>) {
-        _sessions.value = rows.sortedByDescending { it.updatedAt }
+        // 子 Agent 会话不是人类对话：先登记 id（供搜索过滤），再从所有列表视图中排除。
+        rows.forEach { row -> if (row.isSubagent) subagentSessionIds.add(row.id) }
+        _sessions.value = rows.filterNot { it.isSubagent }.sortedByDescending { it.updatedAt }
         rebuildWorkspaceViews()
     }
 

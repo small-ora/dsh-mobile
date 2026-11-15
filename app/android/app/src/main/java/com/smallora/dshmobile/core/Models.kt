@@ -50,7 +50,21 @@ data class SessionRow(
     val todos: List<Todo>,
     val selection: ModelSelection?,
     val agentAvailable: Boolean,
-)
+    /** DSH `session/list` item.origin：子 Agent 会话为 "subagent"；人类根会话为 null。 */
+    val origin: String? = null,
+) {
+    /**
+     * 子 Agent 会话（`origin = "subagent"`）。
+     *
+     * 这类会话属于某个父会话的内部执行单元，不是人类对话：会话列表、工作区计数、
+     * 搜索结果都必须排除它们（SPEC `.ai/hide-subagent-sessions/SPEC.md` AC1）。
+     *
+     * 注意：**不能用 `parentSessionId` 判定**——`session/fork` 产生的分支会话同样带父会话 id
+     * 但没有 `origin`，它是人类要用的分支对话，必须继续展示（SPEC AC2）。
+     */
+    val isSubagent: Boolean
+        get() = origin == "subagent"
+}
 
 data class QuestionOption(val label: String, val description: String?)
 
