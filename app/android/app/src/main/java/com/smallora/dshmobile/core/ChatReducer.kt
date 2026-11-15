@@ -168,7 +168,10 @@ object ChatReducer {
                 val message = data.objOrNull("message") ?: data
                 val callId = message.strOrNull("toolCallId") ?: data.strOrNull("callId")
                 val key = if (callId != null) "tool:$callId" else "tool:unknown:${eventKey}"
-                val resultText = Json.contentText(Json.messageContent(data))
+                val content = Json.messageContent(data)
+                // 文本只取 text 块；image 块单独解析为图片，由 UI 在结果区渲染（不再显示「[图片]」占位）
+                val resultText = Json.contentPlainText(content)
+                val images = Json.parseImageRefs(content, state.sessionId)
                 val isError = message.boolOr("isError", false) || data.objOrNull("error") != null
                 val existing = state.items.firstOrNull { it is ChatItem.Tool && it.key == key } as? ChatItem.Tool
                 val updated = ChatItem.Tool(
@@ -178,6 +181,7 @@ object ChatReducer {
                     result = resultText.ifBlank { existing?.result },
                     isError = isError,
                     running = false,
+                    images = images.ifEmpty { existing?.images ?: emptyList() },
                 )
                 state.withItem(updated)
             }

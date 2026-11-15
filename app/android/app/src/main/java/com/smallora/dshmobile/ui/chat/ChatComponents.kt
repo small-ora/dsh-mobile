@@ -86,7 +86,7 @@ internal fun ChatItemRow(
     when (item) {
         is ChatItem.User -> UserBubble(item, imageEnv)
         is ChatItem.Assistant -> AssistantMessage(item, thinkSeconds, imageEnv)
-        is ChatItem.Tool -> ToolRow(item)
+        is ChatItem.Tool -> ToolRow(item, imageEnv = imageEnv)
         is ChatItem.Notice -> NoticeLine(item)
     }
 }
@@ -188,6 +188,7 @@ private fun ReasoningRow(reasoning: String, seconds: Int?, streaming: Boolean) {
 @Composable
 private fun ToolRow(
     item: ChatItem.Tool,
+    imageEnv: ChatImageEnv? = null,
     horizontalPadding: Dp = 16.dp,
     compact: Boolean = false,
 ) {
@@ -211,7 +212,10 @@ private fun ToolRow(
             Text("●", style = typography.labelSmall, color = dotColor)
             Spacer(Modifier.width(8.dp))
             Text(
-                text = if (item.running) "工具 · ${item.name} · 运行中" else "工具 · ${item.name}",
+                text = buildString {
+                    append(if (item.running) "工具 · ${item.name} · 运行中" else "工具 · ${item.name}")
+                    if (item.images.isNotEmpty()) append(" · 图 ${item.images.size}")
+                },
                 style = if (compact) typography.bodySmall else typography.bodyMedium,
                 color = when {
                     item.isError -> colors.error
@@ -236,6 +240,11 @@ private fun ToolRow(
                     CodeSurface(result, isError = item.isError)
                 } else if (item.running) {
                     Text("运行中…", style = typography.labelSmall, color = colors.onSurfaceVariant)
+                }
+                // 工具结果中的图片（如截图/看图工具）：与正文图片同一套加载/预览/缓存
+                if (item.images.isNotEmpty() && imageEnv != null) {
+                    Text("图片", style = typography.labelSmall, color = colors.onSurfaceVariant)
+                    ChatImages(images = item.images, env = imageEnv)
                 }
             }
         }
@@ -305,7 +314,7 @@ internal fun ProcessGroupRow(
             ) {
                 group.items.forEach { item ->
                     when (item) {
-                        is ChatItem.Tool -> ToolRow(item, horizontalPadding = 0.dp, compact = true)
+                        is ChatItem.Tool -> ToolRow(item, imageEnv = imageEnv, horizontalPadding = 0.dp, compact = true)
                         is ChatItem.Notice -> NoticeLine(item, horizontalPadding = 0.dp)
                         is ChatItem.Assistant -> GroupAssistant(
                             item = item,

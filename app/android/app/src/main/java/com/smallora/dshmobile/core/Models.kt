@@ -158,6 +158,8 @@ sealed interface ChatItem {
         val result: String?,
         val isError: Boolean,
         val running: Boolean,
+        /** 工具结果里的图片（如截图/看图工具返回 image 块）；UI 在结果区渲染。 */
+        val images: List<ImageRef> = emptyList(),
     ) : ChatItem
 
     data class Notice(
