@@ -2,6 +2,13 @@
 
 本项目按 `v0.1.x` 迭代；每个 GitHub Release 附带 arm64 APK 与插件 tgz。
 
+## 未发布
+
+**修复：后台进程 / 子 Agent 消息被误展示为「排队」消息**
+- 根因：DSH 的 `inbox.next-turn/next-step` 除人类排队消息外，还会注入后台任务完成通知（`source.kind="tool-jobs"`）、子 Agent 结算/互通（`subagent-settled` / `agent-message`）、团队消息（`team-message`）、goal 等续跑消息；App 解析排队消息时未检查 `source`，把这些内部消息也当作「排队 N 条」展示。
+- 修复：排队消息只保留 `source.kind == "user"`；缺 `source` 的历史数据兼容保留。新增 `QueuedMessageSourceTest` 覆盖人类 / 后台任务 / 子 Agent / 团队 / goal 混合 inbox。
+- 说明：这些注入消息本来也不会出现在 App 聊天正文（`ChatReducer` 同样按 `source.kind` 过滤用户气泡），本次只修「排队」区域的漏网。
+
 ## v0.1.11（2026-11-15）
 
 **修复：搜索在当前主机不可用时的体验**

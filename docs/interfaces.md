@@ -394,7 +394,7 @@ class AppNavState { var route: Route; fun go(route: Route); fun back() }
 - `commands/list {agentId}` → value 为**数组** `[{definitionId,name,description,input:{hint?}}]`
 - `commands/execute {agentId, line, submittedAttachments:[]}`
 - `permissionPresets/catalog {}` → `{options:[{value,name}],defaultPreset}`
-- `session/projections {request:{sessionId}}` → `values.inbox.next-turn/next-step`（排队消息）、`values.permissions.currentValue`、`values.workingDirectory`
+- `session/projections {request:{sessionId}}` → `values.inbox.next-turn/next-step`（排队消息）、`values.permissions.currentValue`、`values.workingDirectory`。**仅 `source.kind == "user"` 的 inbox 行是人类排队消息**；`tool-jobs`（后台任务通知）、`subagent-settled`/`agent-message`（子 Agent）、`team-message`、`goal` 等注入消息不得展示在「排队 N 条」中
 - `session/updateQueue {request:{sessionId,itemId,action:{kind:'steer'|'remove'|'edit'}}}`（排队消息插队/删除）
 - 参数命名：仅 `session/list` 用 `{_request:{}}`；其余 `session/*`、`workspace/*` 用 `{request:{…}}`；`session/prompt` 必须带客户端 UUID `requestId`；`goals/get {agentId}`、`goals/pause|resume|complete|clear {agentId,ref:{id,revision}}`
 

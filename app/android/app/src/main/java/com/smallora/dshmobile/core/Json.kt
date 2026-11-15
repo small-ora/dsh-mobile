@@ -294,7 +294,14 @@ object Json {
 
     // ---- 排队消息 / 权限 / 指令 ----
 
-    /** 从 projections.values.inbox 解析排队消息：next-turn 在前、next-step 在后，空项跳过。 */
+    /**
+     * 从 projections.values.inbox 解析**人类**排队消息：next-turn 在前、next-step 在后，空项跳过。
+     *
+     * inbox 里还会注入非人类消息：后台任务完成通知（`source.kind="tool-jobs"`）、子 Agent 结算/互通
+     * （`subagent-settled` / `agent-message`）、团队消息（`team-message`）、goal/schedule 续跑等。
+     * 这些不是用户排队的对话，不能出现在「排队 N 条」里；只保留 `source.kind=="user"`
+     * （缺 source 的历史数据按人类消息兼容保留）。
+     */
     fun parseQueuedMessages(values: JSONObject?): List<QueuedMessage> {
         if (values == null) return emptyList()
         val inbox = values.objOrNull("inbox") ?: return emptyList()
@@ -303,6 +310,9 @@ object Json {
             val items = inbox.arrOrNull(section) ?: continue
             for (index in 0 until items.length()) {
                 val item = items.optJSONObject(index) ?: continue
+                // 只展示人类排队消息：后台进程 / 子 Agent / 团队 / 目标续跑等注入消息一律隐藏
+                val sourceKind = item.objOrNull("source")?.strOrNull("kind")
+                if (sourceKind != null && sourceKind != "user") continue
                 val content = item.arrOrNull("content")
                     ?: item.objOrNull("message")?.arrOrNull("content")
                 // 排队行由 UI 单独展示图片（[图片]），text 不拼占位符
