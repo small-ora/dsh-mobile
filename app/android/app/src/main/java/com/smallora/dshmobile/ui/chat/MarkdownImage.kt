@@ -4,7 +4,9 @@ package com.smallora.dshmobile.ui.chat
  * Markdown 图片语法（`![alt](src)`）的解析与剥离（纯 Kotlin，可 JVM 单测）。
  *
  * 规则：
- * - 按「段落 chunk」分组：空行分段、fenced code block（``` / ~~~）内整体不解析、表格行（≥2 个 `|`）不解析；
+ * - 按「段落 chunk」分组：空行分段、fenced code block（``` / ~~~）内整体不解析；
+ * - 表格行（≥2 个 `|`）内的图片同样解析：从正文移除图片语法，单元格位置保留 alt 文本（空 alt → `[图片]`），
+ *   图片渲染在该 chunk（整张表）之后；
  * - 行内 code（`...`）内的 `![...]` 不解析；转义 `\![...]`（前面有反斜杠）不解析；
  * - src 支持尖括号包裹带空格路径：`![a](<path with space>)`，渲染前去掉尖括号；
  * - 图片语法从正文中移除，原始 Markdown 交给 [com.smallora.dshmobile.ui.md.Markdown] 渲染，
@@ -69,9 +71,9 @@ object MarkdownImage {
         return chunks
     }
 
-    /** 从单行中抽取图片语法并返回剥离后的文本（跳过行内 code 与表格行）。 */
+    /** 从单行中抽取图片语法并返回剥离后的文本（跳过行内 code；表格行保留 alt 文本以免空单元格）。 */
     private fun extractLine(line: String): Pair<String, List<Image>> {
-        if (line.count { it == '|' } >= 2) return line to emptyList()
+        val isTableRow = line.count { it == '|' } >= 2
         val out = StringBuilder(line.length)
         val found = ArrayList<Image>()
         var i = 0
@@ -97,6 +99,8 @@ object MarkdownImage {
                 if (parsed != null) {
                     val (image, end) = parsed
                     found.add(image)
+                    // 表格单元格里的图片：保留 alt 占位，避免表格出现空单元格
+                    if (isTableRow) out.append(image.alt.ifBlank { "[图片]" })
                     i = end
                     continue
                 }

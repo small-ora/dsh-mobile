@@ -60,12 +60,24 @@ class MarkdownImageTest {
     }
 
     @Test
-    fun tableRow_notParsed() {
+    fun tableRow_imageExtracted_andAltKeptAsCellPlaceholder() {
         val chunks = MarkdownImage.split("| 列 | 图 |\n| --- | --- |\n| a | ![x](y.png) |")
 
         assertEquals(1, chunks.size)
-        assertTrue(chunks[0].images.isEmpty())
-        assertTrue(chunks[0].markdown.contains("![x](y.png)"))
+        assertEquals(1, chunks[0].images.size)
+        assertEquals("y.png", chunks[0].images[0].src)
+        // 表格单元格保留 alt，避免出现空单元格；图片语法本身从正文移除
+        assertTrue(chunks[0].markdown.contains("| a | x |"))
+        assertTrue(!chunks[0].markdown.contains("![x](y.png)"))
+    }
+
+    @Test
+    fun tableRow_imageWithEmptyAlt_usesPlaceholderText() {
+        val chunks = MarkdownImage.split("| a | ![](y.png) |")
+
+        assertEquals(1, chunks[0].images.size)
+        assertTrue(chunks[0].markdown.contains("[图片]"))
+        assertTrue(!chunks[0].markdown.contains("![]("))
     }
 
     @Test
