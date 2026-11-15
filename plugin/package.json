@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile-plugin",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "dsh-mobile: DSH 侧边栏入口 + 主机面板 + 独立网关（口令/设备 token、RPC 代理、HTTP 长轮询流中心、文件传输）",
   "type": "module",
   "main": "./index.mjs",

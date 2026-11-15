@@ -21,8 +21,8 @@ export const name = 'dsh-mobile-plugin'
 export const inject = ['webServer', 'connection']
 
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url))
-const PLUGIN_VERSION = '0.1.11'
-const GATEWAY_VERSION = '0.1.11'
+const PLUGIN_VERSION = '0.1.12'
+const GATEWAY_VERSION = '0.1.12'
 const DEFAULT_GATEWAY_PORT = 8790
 const MAX_LOG_LINES = 200
 const RESTART_DELAYS = [1000, 2000, 5000, 15_000, 30_000]

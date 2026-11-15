@@ -2,7 +2,7 @@
 
 本项目按 `v0.1.x` 迭代；每个 GitHub Release 附带 arm64 APK 与插件 tgz。
 
-## 未发布
+## v0.1.12（2026-11-15）
 
 **修复：后台进程 / 子 Agent 消息被误展示为「排队」消息**
 - 根因：DSH 的 `inbox.next-turn/next-step` 除人类排队消息外，还会注入后台任务完成通知（`source.kind="tool-jobs"`）、子 Agent 结算/互通（`subagent-settled` / `agent-message`）、团队消息（`team-message`）、goal 等续跑消息；App 解析排队消息时未检查 `source`，把这些内部消息也当作「排队 N 条」展示。
@@ -13,6 +13,8 @@
 - 根因：目标卡片在聊天页底部常驻，`goal.phase == "complete"` 后仍一直渲染，压缩消息/输入区空间。
 - 修复：目标完成（`complete`/`completed`）时**自动隐藏**；卡片右上角新增「✕」可**手动关闭**任意阶段的目标（按 `goal.id` 记住，新目标会重新展示）。
 - 新增 `GoalCardVisibilityTest`（完成自动隐藏、手动关闭只隐藏该目标、新目标重新展示）。
+
+- 插件/网关功能无变化，版本号随 Release 同步为 `0.1.12`（Release 资产含插件 tgz）。
 
 ## v0.1.11（2026-11-15）
 

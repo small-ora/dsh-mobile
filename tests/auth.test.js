@@ -244,7 +244,7 @@ test('网关 HTTP：/health 免鉴权、/api/rpc 无 token 401、登录/me/撤�
   assert.equal(ok.json.deviceName, 'HTTP Pixel')
   assert.equal(ok.json.mustChangePassword, true)
   assert.equal(typeof ok.json.deviceId, 'string')
-  assert.equal(ok.json.host.gatewayVersion, '0.1.11')
+  assert.equal(ok.json.host.gatewayVersion, '0.1.12')
   assert.equal('tunnel' in ok.json.host, false)
 
   const me = await readJson(await api(gateway, ok.json.token, '/api/me'))

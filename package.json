@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "private": true,
   "description": "DSH 移动远程客户端：DSH 插件 + 零依赖网关 + 原生 Android App（Kotlin/Compose）",
   "type": "module",
