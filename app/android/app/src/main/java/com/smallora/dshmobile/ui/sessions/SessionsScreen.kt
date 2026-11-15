@@ -72,6 +72,7 @@ fun SessionsScreen(container: AppContainer, nav: AppNavState) {
     val connection by vm.connection.collectAsStateWithLifecycle()
     val query by vm.query.collectAsStateWithLifecycle()
     val searchResults by vm.searchResults.collectAsStateWithLifecycle()
+    val searchUnavailable by vm.searchUnavailable.collectAsStateWithLifecycle()
     val loading by vm.loading.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val toast by vm.toast.collectAsStateWithLifecycle()
@@ -244,6 +245,8 @@ fun SessionsScreen(container: AppContainer, nav: AppNavState) {
                             Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
                                 Text(
                                     when {
+                                        // 当前主机未挂载 session-query：给中文可理解提示，而不是英文上游错误
+                                        searchUnavailable != null -> searchUnavailable!!
                                         searching -> "没有匹配的会话"
                                         selectedWorkspace != null -> "该工作区暂无会话"
                                         else -> "暂无会话，点右上角「新建」"

@@ -21,6 +21,7 @@
   - `ApiException: 上游服务不可用`：DSH 未运行 → `systemctl --user status dsh-web`。
   - `NetworkOnMainThreadException`：App 旧版本 → 升级。
 - 会话看不到别的目录：对话页顶部「全部工作区 ▾」切换工作区（按会话 cwd 聚合）。
+- 搜索提示「当前主机未启用会话搜索」：该主机 DSH 未挂载 `session-query` 组件，`session/search` 被上游禁用；不是 App 故障，换用已挂载该组件的部署即可（App 已避免反复请求与英文原始报错）。
 
 ## 3. 图片不显示
 

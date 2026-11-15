@@ -6,6 +6,7 @@ import com.smallora.dshmobile.core.AppContainer
 import com.smallora.dshmobile.core.SessionRow
 import com.smallora.dshmobile.core.UnauthorizedException
 import com.smallora.dshmobile.core.WorkspaceRow
+import com.smallora.dshmobile.core.searchUnavailableReason
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,6 +32,10 @@ class SessionsViewModel(private val container: AppContainer) : ViewModel() {
 
     private val _searchResults = MutableStateFlow<List<SessionRow>>(emptyList())
     val searchResults: StateFlow<List<SessionRow>> = _searchResults.asStateFlow()
+
+    /** 非空表示「当前主机未启用会话搜索」，值为给用户的中文提示；命中后不再重复请求。 */
+    private val _searchUnavailable = MutableStateFlow<String?>(null)
+    val searchUnavailable: StateFlow<String?> = _searchUnavailable.asStateFlow()
 
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
@@ -73,10 +78,24 @@ class SessionsViewModel(private val container: AppContainer) : ViewModel() {
             _searchResults.value = emptyList()
             return
         }
+        // 已知当前主机未启用搜索：不再发请求，直接展示提示（避免每次输入都弹英文错误）
+        if (_searchUnavailable.value != null) {
+            _searchResults.value = emptyList()
+            return
+        }
         viewModelScope.launch {
             runCatching { repo.search(query) }
                 .onSuccess { _searchResults.value = it }
-                .onFailure { _toast.value = it.message ?: "搜索失败" }
+                .onFailure { e ->
+                    val reason = searchUnavailableReason(e)
+                    if (reason != null) {
+                        _searchUnavailable.value = reason
+                        _searchResults.value = emptyList()
+                        _toast.value = reason
+                    } else {
+                        _toast.value = e.message ?: "搜索失败"
+                    }
+                }
         }
     }
 
