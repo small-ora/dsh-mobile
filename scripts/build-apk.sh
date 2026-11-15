@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 本地一键构建 release APK：
 #   1) 解析版本号（VERSION_NAME/VERSION_CODE 环境变量 > 参数 vX.Y.Z > git describe > 默认）
+#      versionCode 统一公式：major*10000 + minor*100 + patch（与 CI tag 构建一致，保证可覆盖升级）
 #   2) 写入 local.properties（SDK 路径）
 #   3) ./gradlew :app:assembleRelease
 #   4) scripts/verify-apk.sh 门禁（包名/minSdk/targetSdk/arm64/签名）
@@ -40,9 +41,9 @@ if [[ -z "$VERSION_NAME" ]]; then
   fi
 fi
 if [[ -z "$VERSION_CODE" ]]; then
-  if [[ "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-    IFS=. read -r major minor patch _ <<<"$VERSION_NAME"
-    VERSION_CODE=$(( major * 10000 + minor * 100 + patch ))
+  # 与 CI tag 构建同一公式：major*10000 + minor*100 + patch（从 vX.Y.Z 前缀提取，忽略 -rc/-dirty 后缀）
+  if [[ "$VERSION_NAME" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+    VERSION_CODE=$(( 10#${BASH_REMATCH[1]} * 10000 + 10#${BASH_REMATCH[2]} * 100 + 10#${BASH_REMATCH[3]} ))
   else
     VERSION_CODE="$(date +%Y%m%d)"
   fi

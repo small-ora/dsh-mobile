@@ -9,7 +9,7 @@
 | `plugin/index.mjs` `PLUGIN_VERSION` / `GATEWAY_VERSION` | 面板与 `/health` 展示 |
 | `gateway/config.mjs` `VERSION` | 网关版本（`/health`） |
 | Git tag `v<version>` | 触发 CI 构建 APK + Release |
-| App `versionName/versionCode` | tag 构建时由 CI 注入：`versionName=<tag 去掉 v>`，`versionCode=GITHUB_RUN_NUMBER`（单调递增） |
+| App `versionName/versionCode` | tag 构建时由 CI 注入：`versionName=<tag 去掉 v>`，`versionCode=major*10000+minor*100+patch`（与 `scripts/build-apk.sh` 同一公式，保证单调可覆盖：0.1.9→109、0.1.10→110、0.1.11→111、0.2.0→200）；非 tag 构建（main/dev/PR）versionCode 仍用 `GITHUB_RUN_NUMBER` |
 
 一次发版通常同步 bump：根 `package.json`、`plugin/package.json`、`plugin/index.mjs`、`gateway/config.mjs`、`tests/auth.test.js`（版本断言），然后提交。
 
@@ -29,9 +29,11 @@ git push origin v0.1.10
 ```
 
 2. GitHub Actions（`.github/workflows/android.yml`）在 tag 上：
-   - 安装 JDK17 + Android SDK 36
+   - 安装 Node 22 + JDK17 + Android SDK 36
+   - **网关门禁**：`npm run check && npm test`（26 文件语法 + 51 例 node:test）
    - 从 Actions Secrets 注入签名密钥
-   - `./gradlew :app:testReleaseUnitTest :app:assembleRelease -PversionCode -PversionName`
+   - `./gradlew :app:testReleaseUnitTest`（134 个 JVM 单测）+ `./gradlew :app:lintRelease`（lint error 阻断）
+   - `./gradlew :app:assembleRelease -PversionCode -PversionName`
    - `scripts/verify-apk.sh` 门禁：包名 / minSdk31 / targetSdk36 / 仅 arm64 / 非 testOnly / 签名证书 SHA-256
    - `gh release create` 上传 `dsh-mobile-v<ver>.apk` 与 `.sha256`
 3. 手动把插件包补到 Release：
@@ -83,6 +85,8 @@ APK 是**非字节可复现**的（签名/时间戳差异），sha256 以 CI 产
 ## 7. 发布检查清单
 
 - [ ] 全部测试通过：`npm run check && npm test` + Android `testReleaseUnitTest`
+- [ ] lint 门禁通过：`./gradlew :app:lintRelease`（error 阻断；无 `abortOnError=false` 绕过）
+- [ ] versionCode 符合公式 `major*10000+minor*100+patch`，且 ≥ 上一个 Release 的 versionCode
 - [ ] 版本号四处/五处一致
 - [ ] `bash scripts/build-plugin-tgz.sh` 并核对包内无凭据（脚本自带检查）
 - [ ] tag 推送后 CI 绿，Release 资产含 APK + `.sha256` + 插件 tgz

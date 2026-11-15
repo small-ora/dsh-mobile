@@ -38,7 +38,8 @@ class FilesClient(private val api: ApiClient) {
         val response = api.download(path)
         response.use { resp ->
             if (!resp.isSuccessful) return@withContext null
-            val bytes = resp.body?.byteStream()?.readNBytes(4 * 1024 * 1024) ?: return@withContext null
+            val bytes = resp.body?.byteStream()?.let { readAtMost(it, 4 * 1024 * 1024) }
+                ?: return@withContext null
             val mime = resp.header("Content-Type")?.substringBefore(';') ?: mimeOf(path)
             mime to bytes
         }
@@ -200,4 +201,22 @@ class AdminClient(private val api: ApiClient) {
             false
         }
     }
+}
+
+/**
+ * 读取至多 [max] 字节（minSdk 31 兼容实现，替代 API 33 才有的 `InputStream.readNBytes`，lint NewApi 门禁）。
+ * 超过上限的部分丢弃；流提前结束则返回已读内容。
+ */
+internal fun readAtMost(stream: java.io.InputStream, max: Int): ByteArray {
+    require(max >= 0) { "max must be >= 0" }
+    val out = java.io.ByteArrayOutputStream(minOf(max, 64 * 1024))
+    val buffer = ByteArray(64 * 1024)
+    var remaining = max
+    while (remaining > 0) {
+        val read = stream.read(buffer, 0, minOf(buffer.size, remaining))
+        if (read < 0) break
+        out.write(buffer, 0, read)
+        remaining -= read
+    }
+    return out.toByteArray()
 }

@@ -103,8 +103,10 @@ android {
   }
 
   lint {
-    abortOnError false
-    checkReleaseBuilds false
+    // 门禁：lint error 阻断构建（CI 显式跑 :app:lintRelease；assembleRelease 也会跑）
+    abortOnError true
+    checkReleaseBuilds true
+    warningsAsErrors false
   }
 }
 
