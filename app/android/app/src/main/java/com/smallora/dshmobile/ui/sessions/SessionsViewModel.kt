@@ -27,6 +27,12 @@ class SessionsViewModel(private val container: AppContainer) : ViewModel() {
 
     val connection = repo.connection
 
+    /** DSH Workspace 注册表（用于「新建会话」时选择工作区）。 */
+    val workspaceInfos = repo.workspaceInfos
+
+    /** 已归档会话 id（列表已过滤；保留给 UI 诊断/后续「显示归档」用）。 */
+    val archivedSessionIds = repo.archivedSessionIds
+
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
 
@@ -99,9 +105,10 @@ class SessionsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    fun create(onCreated: (String) -> Unit) {
+    /** 新建会话；[workspaceId] 为空时由 DSH 使用默认工作区。 */
+    fun create(workspaceId: String?, onCreated: (String) -> Unit) {
         viewModelScope.launch {
-            val id = repo.createSession()
+            val id = repo.createSession(workspaceId)
             if (id != null) {
                 onCreated(id)
             } else {

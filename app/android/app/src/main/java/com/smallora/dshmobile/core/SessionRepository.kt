@@ -43,6 +43,20 @@ class SessionRepository(
     /** 当前会话集合按 cwd 聚合出的工作区列表（count 降序）。 */
     val workspaces: StateFlow<List<WorkspaceRow>> = _workspaces.asStateFlow()
 
+    private val _workspaceInfos = MutableStateFlow<List<WorkspaceInfo>>(emptyList())
+    /** DSH Workspace 注册表（workspace/follow 基线），供「新建会话」选择工作区。 */
+    val workspaceInfos: StateFlow<List<WorkspaceInfo>> = _workspaceInfos.asStateFlow()
+
+    private val _archivedSessionIds = MutableStateFlow<Set<String>>(emptySet())
+    /** 已归档会话 id：归档后不再出现在列表/搜索里（随 workspace/follow 同步）。 */
+    val archivedSessionIds: StateFlow<Set<String>> = _archivedSessionIds.asStateFlow()
+
+    /** workspace/follow 的本地快照（Workspace 列表 + 归档集合）。 */
+    private val workspaceSnapshot = MutableStateFlow(WorkspaceSnapshot())
+
+    /** 未归档/非子 Agent 的全量会话；[sessions] 是它按归档集合过滤后的视图。 */
+    private var allSessions: List<SessionRow> = emptyList()
+
     private val _selectedWorkspace = MutableStateFlow<String?>(null)
     /** 当前选中的工作区路径；null = 全部。 */
     val selectedWorkspace: StateFlow<String?> = _selectedWorkspace.asStateFlow()
@@ -73,6 +87,9 @@ class SessionRepository(
     /** $events 单例泵的并发门闩：并发 ensureEvents 只创建/启动一次（避免开两条流，审查 P2）。 */
     private val eventsGate = SingleFlightGate { createEventsPump() }
 
+    /** workspace/follow 单例泵（工作区列表 + 归档会话集合）。 */
+    private val workspaceGate = SingleFlightGate { createWorkspacePump() }
+
     /** 进程级（仓库级）权限预设目录缓存：只请求一次 permissionPresets/catalog。 */
     private val permissionCatalog = MutableStateFlow<JSONObject?>(null)
     private val permissionCatalogMutex = Mutex()
@@ -84,6 +101,7 @@ class SessionRepository(
 
     suspend fun refresh() {
         ensureEvents()
+        ensureWorkspaceStream()
         try {
             val value = api.rpc("session/list", JSONObject().put("_request", JSONObject()))
             applySessionRows(Json.parseSessions(value))
@@ -118,9 +136,15 @@ class SessionRepository(
 
     // ---- 会话操作 ----
 
-    suspend fun createSession(): String? {
+    /**
+     * 新建会话；[workspaceId] 非空时加入指定 DSH Workspace（session/create 的 workspaceId 字段），
+     * 为空则由 DSH 使用默认工作区/目录。
+     */
+    suspend fun createSession(workspaceId: String? = null): String? {
         return try {
-            val value = api.rpc("session/create", JSONObject().put("request", JSONObject()))
+            val request = JSONObject()
+            workspaceId?.takeIf { it.isNotBlank() }?.let { request.put("workspaceId", it) }
+            val value = api.rpc("session/create", JSONObject().put("request", request))
             val id = value.strOrNull("sessionId") ?: value.strOrNull("id")
             if (id.isNullOrEmpty()) null else {
                 runCatching { refreshSessionsOnly() }
@@ -151,12 +175,13 @@ class SessionRepository(
     /** 归档：现代 DSH 无 session/archive，走 workspace/archiveSession（interfaces §4）。 */
     suspend fun archive(id: String): Boolean {
         return try {
-            api.rpc(
+            val value = api.rpc(
                 "workspace/archiveSession",
                 JSONObject().put("request", JSONObject().put("sessionId", id)),
             )
             closeSession(id)
-            updateSessions { rows -> rows.filterNot { it.id == id } }
+            // 上游返回完整归档集合；解析失败时本地兜底加入，保证列表立即隐藏
+            applyArchivedSessionIds(parseArchivedSessionIds(value) ?: (_archivedSessionIds.value + id))
             true
         } catch (_: Exception) {
             false
@@ -193,7 +218,7 @@ class SessionRepository(
                     agentAvailable = false,
                 )
             }
-        }.filterNot { it.id in subagentSessionIds }
+        }.filterNot { it.id in subagentSessionIds || isSessionArchived(it.id, _archivedSessionIds.value) }
     }
 
     // ---- 会话事件流 ----
@@ -549,6 +574,11 @@ class SessionRepository(
     fun stop() {
         eventsGate.peek()?.stop()
         eventsGate.clear()
+        workspaceGate.peek()?.stop()
+        workspaceGate.clear()
+        workspaceSnapshot.value = WorkspaceSnapshot()
+        _workspaceInfos.value = emptyList()
+        _archivedSessionIds.value = emptySet()
         startedSessions.clear()
         for (pump in followers.values) pump.stop()
         followers.clear()
@@ -662,6 +692,43 @@ class SessionRepository(
         }
     }
 
+    // ---- workspace/follow（工作区注册表 + 归档集合） ----
+
+    private fun ensureWorkspaceStream() {
+        workspaceGate.get()
+    }
+
+    private fun createWorkspacePump(): StreamPump {
+        val pump = StreamPump(
+            api = api,
+            endpoint = "workspace/follow",
+            args = JSONObject(),
+            onItem = { value -> handleWorkspaceFrame(value) },
+            onState = { },
+            // 重连后上游会重新发 baseline（完整快照），无需额外清理
+            onReset = { },
+        )
+        pump.start()
+        return pump
+    }
+
+    private fun handleWorkspaceFrame(frame: JSONObject) {
+        val next = applyWorkspaceFrame(workspaceSnapshot.value, frame) ?: return
+        workspaceSnapshot.value = next
+        _workspaceInfos.value = next.workspaces
+        if (_archivedSessionIds.value != next.archivedSessionIds) {
+            _archivedSessionIds.value = next.archivedSessionIds
+            rebuildSessionViews()
+        }
+    }
+
+    /** 更新归档集合并重建列表视图（internal 供单测注入）。 */
+    internal fun applyArchivedSessionIds(ids: Set<String>) {
+        workspaceSnapshot.update { it.copy(archivedSessionIds = ids) }
+        _archivedSessionIds.value = ids
+        rebuildSessionViews()
+    }
+
     // ---- session/follow ----
 
     private fun handleFollow(sessionId: String, value: JSONObject) {
@@ -765,12 +832,19 @@ class SessionRepository(
     internal fun applySessionRows(rows: List<SessionRow>) {
         // 子 Agent 会话不是人类对话：先登记 id（供搜索过滤），再从所有列表视图中排除。
         rows.forEach { row -> if (row.isSubagent) subagentSessionIds.add(row.id) }
-        _sessions.value = rows.filterNot { it.isSubagent }.sortedByDescending { it.updatedAt }
+        allSessions = rows.filterNot { it.isSubagent }
+        rebuildSessionViews()
+    }
+
+    /** 由 allSessions + 归档集合重建 sessions / workspaces / filteredSessions。 */
+    private fun rebuildSessionViews() {
+        val archived = _archivedSessionIds.value
+        _sessions.value = allSessions.filterNot { it.id in archived }.sortedByDescending { it.updatedAt }
         rebuildWorkspaceViews()
     }
 
     private fun updateSessions(transform: (List<SessionRow>) -> List<SessionRow>) {
-        applySessionRows(transform(_sessions.value))
+        applySessionRows(transform(allSessions))
     }
 
     /** 从当前 sessions 重建工作区列表与筛选结果；所选工作区消失时回退「全部」。 */
@@ -790,18 +864,16 @@ class SessionRepository(
     }
 
     private fun updateRow(id: String, transform: (SessionRow) -> SessionRow) {
-        _sessions.value = _sessions.value.map { row -> if (row.id == id) transform(row) else row }
-            .sortedByDescending { it.updatedAt }
-        rebuildWorkspaceViews()
+        allSessions = allSessions.map { row -> if (row.id == id) transform(row) else row }
+        rebuildSessionViews()
     }
 
     private fun upsertRow(row: SessionRow) {
-        val filtered = _sessions.value.filterNot { it.id == row.id }
-        applySessionRows(filtered + row)
+        applySessionRows(allSessions.filterNot { it.id == row.id } + row)
     }
 
     private fun resortSessions() {
-        applySessionRows(_sessions.value)
+        rebuildSessionViews()
     }
 
     private fun describeFailure(e: Exception): String {

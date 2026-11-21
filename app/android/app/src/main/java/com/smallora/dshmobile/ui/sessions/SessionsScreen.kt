@@ -11,13 +11,16 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,6 +50,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.smallora.dshmobile.core.AppContainer
 import com.smallora.dshmobile.core.SessionRow
+import com.smallora.dshmobile.core.WorkspaceInfo
 import com.smallora.dshmobile.core.WorkspaceRow
 import com.smallora.dshmobile.ui.AppNavState
 import com.smallora.dshmobile.ui.Route
@@ -73,6 +77,7 @@ fun SessionsScreen(container: AppContainer, nav: AppNavState) {
     val query by vm.query.collectAsStateWithLifecycle()
     val searchResults by vm.searchResults.collectAsStateWithLifecycle()
     val searchUnavailable by vm.searchUnavailable.collectAsStateWithLifecycle()
+    val workspaceInfos by vm.workspaceInfos.collectAsStateWithLifecycle()
     val loading by vm.loading.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val toast by vm.toast.collectAsStateWithLifecycle()
@@ -82,6 +87,7 @@ fun SessionsScreen(container: AppContainer, nav: AppNavState) {
     var workspaceMenuOpen by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<SessionRow?>(null) }
     var renameText by remember { mutableStateOf("") }
+    var createWorkspacePickerOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(toast) {
         toast?.let {
@@ -123,6 +129,39 @@ fun SessionsScreen(container: AppContainer, nav: AppNavState) {
         )
     }
 
+    if (createWorkspacePickerOpen) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { createWorkspacePickerOpen = false },
+            title = { Text("新建会话 · 选择工作区") },
+            text = {
+                Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                    WorkspaceChoiceRow(
+                        title = "默认工作区",
+                        subtitle = "不指定，由 DSH 使用默认目录",
+                        onClick = {
+                            createWorkspacePickerOpen = false
+                            vm.create(null) { id -> nav.go(Route.Chat(id)) }
+                        },
+                    )
+                    workspaceInfos.forEach { info ->
+                        WorkspaceChoiceRow(
+                            title = info.title,
+                            subtitle = info.path,
+                            onClick = {
+                                createWorkspacePickerOpen = false
+                                vm.create(info.workspaceId) { id -> nav.go(Route.Chat(id)) }
+                            },
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { createWorkspacePickerOpen = false }) { Text("取消") }
+            },
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         containerColor = MaterialTheme.colorScheme.background,
@@ -156,7 +195,12 @@ fun SessionsScreen(container: AppContainer, nav: AppNavState) {
                     TextButton(onClick = { searchMode = true }) { Text("搜索") }
                     TextButton(
                         onClick = {
-                            vm.create { id -> nav.go(Route.Chat(id)) }
+                            if (workspaceInfos.isEmpty()) {
+                                // 旧部署没有 Workspace 注册表：退回默认工作区，不阻塞新建
+                                vm.create(null) { id -> nav.go(Route.Chat(id)) }
+                            } else {
+                                createWorkspacePickerOpen = true
+                            }
                         },
                     ) { Text("+ 新建") }
                 }
@@ -504,5 +548,33 @@ private fun formatTime(timestamp: Long): String {
         delta < 86_400_000L -> "${delta / 3_600_000L} 小时前"
         delta < 7 * 86_400_000L -> "${delta / 86_400_000L} 天前"
         else -> SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(timestamp))
+    }
+}
+
+
+/** 「新建会话」工作区选择行的简单展示（标题 + 路径）。 */
+@Composable
+private fun WorkspaceChoiceRow(title: String, subtitle: String, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        if (subtitle.isNotBlank()) {
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }

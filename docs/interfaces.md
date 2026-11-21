@@ -52,8 +52,8 @@
 > 背景：用户现有 Cloudflare 通道可能不透传 WebSocket，因此 **App 只用 HTTP 长轮询**；网关内部用一条到 DSH 的 WebSocket 流，把帧缓冲并提供给 App 拉取。`/api/ws` 仅作为局域网可选优化保留（App v1 不使用）。
 
 - 网关启动后建立并维护**一条**到上游 `ws://<dsh>/api/remote.mux` 的连接（Cookie 注入），支持在其上开多个逻辑流；断线指数退避重连（1.5s→60s），重连后自动重开已登记的流；重连时所有流带 `reset:true`，pending 缓存清空并由上游重放重建。
-- `POST /api/stream/open` body `{endpoint:'$events'|'session/follow', args:{…}}` → `{streamId}`。
-  - `$events` 的 args 为 `{}`；`session/follow` 的 args 形如 `{request:{address:{kind:'session',sessionId},assistantStream:true}}`。
+- `POST /api/stream/open` body `{endpoint:'$events'|'session/follow'|'workspace/follow', args:{…}}` → `{streamId}`。
+  - `$events` / `workspace/follow` 的 args 为 `{}`；`session/follow` 的 args 形如 `{request:{address:{kind:'session',sessionId},assistantStream:true}}`。
 - `GET /api/stream/poll?streamId=&since=0&wait=25000` → 长轮询（有数据立即返回，无数据最多挂 25s）：
   ```json
   {"items":[{"seq":1,"value":{"type":"ready","clientId":"…","host":{…}}}],"next":2,"closed":false}
@@ -67,7 +67,7 @@
 - `POST /api/stream/cancel` body `{streamId}` → 关闭该流并释放上游（非本人/内部流 404）。
 - `GET /api/streams` → `{items:[{streamId,endpoint,seq,closed,at}]}`（仅本设备、非内部流）。
 - `WS /api/ws?ticket=`（可选）：同一 hub 的实时版本，帧格式同上游 `{type:'open'|'cancel'|'item'|'error'}`；App v1 不依赖。设备注销/登出时该设备已有 WS 以 **4401** 关闭，open 时复查设备有效性。
-- 帧内容与上游一致（`{type:'item',streamId,value}` 中的 `value` 即 `poll.items[].value`）：`ready`/`waterfall`/`emit`/`cancel`（`$events`），`snapshot`/`event`/`assistant-stream`（`session/follow`）。
+- 帧内容与上游一致（`{type:'item',streamId,value}` 中的 `value` 即 `poll.items[].value`）：`ready`/`waterfall`/`emit`/`cancel`（`$events`），`snapshot`/`event`/`assistant-stream`（`session/follow`），`baseline`/`replace`/`upsert`/`remove`/`order`/`archived`/`pinned`（`workspace/follow`：Workspace 注册表 + 归档会话集合）。
 
 ### 2.4 待处理请求（后台通知用）
 
@@ -116,6 +116,7 @@
 | `session/list` | `{_request:{}}` | 会话列表；items 含 projections（title/goal/todos/modelSelection/userQuestions/subagentCatalog/tokenUsage…）与 `origin` / `parentSessionId`。子 Agent 会话 = `origin:'subagent'`（**App 必须过滤**）；`session/fork` 分支会话也带 `parentSessionId` 但无 `origin`，**不能**按父会话过滤。**注意：只有 list 用 `_request`** |
 | `session/modelCatalog` | `{}` | 模型目录（无参数） |
 | `session/follow` | **流**：`{request:{address:{kind:'session',sessionId}, assistantStream:true, maxMessages?, turnWindow?}}` | 打开快照 + 实时事件；streamId 自定 |
+| `workspace/follow` | **流**：`{}` | Workspace 注册表（含 workspaceId/title/path）+ 归档会话集合；首帧 `baseline`，之后增量 |
 | `session/page` | `{request:{address:{kind:'session',sessionId}, throughSeq, beforeSeq?, maxMessages?, turnWindow?}}` | 向上翻历史 |
 | `session/prompt` | `{request:{requestId:<uuid>, sessionId, mode:'queue'|'steer', content:[{type:'text',text}|{type:'image',mediaType,data,name?}]}}` | 发送消息（**必填客户端生成的 `requestId`；断线不自动重试**） |
 | `session/cancel` | `{request:{sessionId}}` | 停止生成 |
@@ -155,7 +156,7 @@
 ## 4. 网关方法白名单
 
 RPC 仅放行：
-`session/list`、`session/modelCatalog`、`session/follow`（流）、`session/page`、`session/projections`、`session/prompt`、`session/cancel`、`session/create`、`session/rename`、`session/search`、`session/selectModel`、`session/updateQueue`、`session/fork`、`session/attachment`、
+`session/list`、`session/modelCatalog`、`session/follow`（流）、`workspace/follow`（流）、`session/page`、`session/projections`、`session/prompt`、`session/cancel`、`session/create`、`session/rename`、`session/search`、`session/selectModel`、`session/updateQueue`、`session/fork`、`session/attachment`、
 `goals/get`、`goals/pause`、`goals/resume`、`goals/complete`、`goals/clear`、
 `workspace/archiveSession`、`workspace/unarchiveSession`、`workspace/create`、
 `commands/list`、`commands/execute`、`permissionPresets/catalog`、
@@ -163,7 +164,7 @@ RPC 仅放行：
 
 - 命令/权限：`commands/list {agentId}`（value 为数组，含 name/description/input.hint）、`commands/execute {agentId,line,submittedAttachments:[]}`、`permissionPresets/catalog {}`（`{options:[{value,name}],defaultPreset}`）。
 - 参数命名（v3 实测更正）：**只有 `session/list` 用 `{_request:{}}`**；`session/page|prompt|cancel|create|rename|search|selectModel|updateQueue|follow|projections|attachment` 与 `workspace/*` 均为 `{request:{…}}`；`goals/get` 为 `{agentId}`；`goals/pause|resume|complete|clear` 为 `{agentId, ref:{id,revision}}`（`ref` 取自会话 goal 投影的 `goal.id` + `goal.revision`）。`session/prompt` 必须带客户端生成的 `requestId`（UUID）。网关只透传 args、不改名。
-- 流仅放行：`$events`、`session/follow`。
+- 流仅放行：`$events`、`session/follow`、`workspace/follow`。
 - 其他一律 403 `{error:'method-not-allowed'}`。
 
 ## 5. App 原生模块契约（Kotlin + Jetpack Compose，零 WebView）
@@ -274,12 +275,14 @@ class SessionRepository(api: ApiClient, store: SettingsStore) {
   val connection: StateFlow<ConnState>
   val pending: StateFlow<List<PendingRequest>>
   val modelCatalog: StateFlow<List<ModelOption>>
+  val workspaceInfos: StateFlow<List<WorkspaceInfo>>   // workspace/follow 基线（新建会话可选工作区）
+  val archivedSessionIds: StateFlow<Set<String>>       // 归档集合：列表/搜索/工作区计数均排除
   suspend fun refresh()
-  suspend fun createSession(): String?
+  suspend fun createSession(workspaceId: String? = null): String?   // session/create {request:{workspaceId?}}
   suspend fun rename(id: String, title: String): Boolean
-  suspend fun archive(id: String): Boolean          // 走 workspace/archiveSession {request:{sessionId}}
-  suspend fun search(q: String): List<SessionRow>
-  suspend fun openSession(id: String)                  // 启动 $events + session/follow
+  suspend fun archive(id: String): Boolean          // workspace/archiveSession {request:{sessionId}}，返回值同步归档集合
+  suspend fun search(q: String): List<SessionRow>   // 排除子 Agent + 已归档会话
+  suspend fun openSession(id: String)                  // 启动 $events + workspace/follow + session/follow
   fun chatState(id: String): StateFlow<ChatUiState>
   suspend fun closeSession(id: String)
   suspend fun loadOlder(id: String)
@@ -292,6 +295,7 @@ class SessionRepository(api: ApiClient, store: SettingsStore) {
   suspend fun goalPause(sessionId: String): Boolean   // goals/pause {agentId, ref:{id,revision}}
   suspend fun goalResume(sessionId: String): Boolean
   suspend fun goalComplete(sessionId: String): Boolean
+  fun dismissGoal(sessionId: String)                 // 手动隐藏目标卡片（按 goal.id；完成的目标自动隐藏）
   suspend fun setModel(id: String, selection: ModelSelection)
   suspend fun fork(id: String, atSeq: Long? = null): String?
 }

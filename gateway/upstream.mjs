@@ -48,7 +48,7 @@ export const RPC_ALLOWLIST = new Set([
 ])
 
 /** docs/interfaces.md §4 流白名单。 */
-export const STREAM_ALLOWLIST = new Set(['$events', 'session/follow'])
+export const STREAM_ALLOWLIST = new Set(['$events', 'session/follow', 'workspace/follow'])
 
 export class UpstreamError extends Error {
   constructor(code, message) {

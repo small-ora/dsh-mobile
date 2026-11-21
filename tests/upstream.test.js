@@ -358,3 +358,13 @@ test('RPC 白名单 v0.1.5 扩展：commands/list、commands/execute、permissio
   }
   assert.equal(upstream.rpcCount('commands/delete'), 0)
 })
+
+
+test('事件流白名单：workspace/follow 可用于工作区/归档集合，未知端点拒绝', async () => {
+  const { validateClientFrame } = await import('../gateway/upstream.mjs')
+  const open = (endpoint) => JSON.stringify({ type: 'open', streamId: 's1', endpoint, args: {} })
+  assert.equal(validateClientFrame(open('workspace/follow')).ok, true)
+  assert.equal(validateClientFrame(open('session/follow')).ok, true)
+  assert.equal(validateClientFrame(open('$events')).ok, true)
+  assert.equal(validateClientFrame(open('evil/follow')).ok, false)
+})
