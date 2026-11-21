@@ -58,7 +58,7 @@ class StreamLifecycleTest {
         val repo = SessionRepository(api, null)
         try {
             repo.openSession("s1")
-            await { repo.activeFollowCount() == 1 && api.opens("session/follow") == 1 }
+            await { repo.activeFollowCount() == 1 && api.opens("session/follow") == 1 && api.opens("\$events") == 1 }
             assertEquals("\$events 只应开一条", 1, api.opens("\$events"))
             assertTrue(repo.eventsStreamOpen())
 
