@@ -2,6 +2,8 @@
 
 本项目按 `v0.1.x` 迭代；每个 GitHub Release 附带 arm64 APK 与插件 tgz。
 
+## v0.1.13（2026-11-22）
+
 **新增：新建会话时选择工作区**
 - App 现在消费 DSH `workspace/follow` 流（新增网关流白名单 `workspace/follow`），拿到真实 Workspace 注册表（workspaceId/title/path）；
 - 「+ 新建」在有工作区时弹出选择器（默认工作区 / 各工作区），`session/create` 携带 `workspaceId`。
@@ -10,6 +12,8 @@
 - 根因：`session/list` 仍会返回已归档会话，App 归档后只在本地移除一次，刷新后又被加回；且未消费 DSH 的归档集合。
 - 修复：消费 `workspace/follow` 的 `archivedSessionIds`（baseline/replace/archived 帧），列表 / 搜索 / 工作区计数统一排除归档会话；`workspace/archiveSession` 返回值也同步集合，归档后立即消失，其他设备取消归档会恢复。
 - 新增 `WorkspaceFramesTest` / `WorkspaceRepositoryTest`。
+
+- 插件/网关随 Release 同步到 `0.1.13`（新增 `workspace/follow` 流白名单；安装后需重启 DSH 生效）。
 
 ## v0.1.12（2026-11-15）
 
