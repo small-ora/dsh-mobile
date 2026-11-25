@@ -7,7 +7,7 @@ DSH（DeepSeek Harness）的移动远程客户端：**DSH 插件 + 零依赖网�
 - 支持 **Cloudflare Tunnel / 任意反向代理**：网关只监听 `0.0.0.0:8790`，把域名转发到这个端口即可；事件通道用 **HTTP 长轮询**，不依赖 WebSocket。
 - 与现有 `dsh-remote-plugin` 完全并存：独立插件、独立网关（8790）、独立配置目录 `~/.dsh-mobile`，不改动现有 DSH 配置。
 
-当前版本：**v0.1.13**（App `0.1.13` / 插件 `0.1.13`），见 [CHANGELOG](CHANGELOG.md) 与 [docs/STATUS.md](docs/STATUS.md)。
+当前版本：**v0.1.14**（App `0.1.14` / 插件 `0.1.14`），见 [CHANGELOG](CHANGELOG.md) 与 [docs/STATUS.md](docs/STATUS.md)。
 
 ## 文档
 
@@ -41,11 +41,11 @@ dsh-mobile-plugin：/mobile 主机面板（状态/口令/设备管理/日志）+
 需要 DSH ≥ 0.2.1-rc.2、Node ≥ 20（网关零 npm 依赖）。
 
 ```bash
-# 1) 构建插件包（或从 GitHub Release 下载 dsh-mobile-plugin-0.1.13.tgz）
-bash scripts/build-plugin-tgz.sh          # 产出 dist/dsh-mobile-plugin-0.1.13.tgz
+# 1) 构建插件包（或从 GitHub Release 下载 dsh-mobile-plugin-0.1.14.tgz）
+bash scripts/build-plugin-tgz.sh          # 产出 dist/dsh-mobile-plugin-0.1.14.tgz
 
 # 2) 安装到你的 web profile（会自动追加 bundle）
-dsh plugin --profile web add /path/to/dsh-mobile-plugin-0.1.13.tgz
+dsh plugin --profile web add /path/to/dsh-mobile-plugin-0.1.14.tgz
 
 # 3) 完整重启 DSH Web（按你的部署方式，例如）
 systemctl --user restart dsh-web
@@ -117,7 +117,7 @@ export DSH_HOME=~/.dsh-dev
 export DSH_MOBILE_CONFIG_DIR=~/.dsh-dev/.dsh-mobile
 export DSH_MOBILE_GATEWAY_HOST=127.0.0.1
 dsh --profile web --host 127.0.0.1 --port 3091 --no-open
-dsh plugin --profile web add dist/dsh-mobile-plugin-0.1.13.tgz
+dsh plugin --profile web add dist/dsh-mobile-plugin-0.1.14.tgz
 E2E_PASSWORD=... node scripts/e2e.mjs
 ```
 

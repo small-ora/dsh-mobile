@@ -1,6 +1,6 @@
 # SPEC v5（as-built）— dsh-mobile：DSH 移动远程客户端
 
-- 状态：**已交付 v0.1.13**（App `0.1.13` / 插件 `0.1.13`）
+- 状态：**已交付 v0.1.14**（App `0.1.14` / 插件 `0.1.14`）
 - 交付仓库：`small-ora/dsh-mobile`（public）
 - 文档：安装/架构/安全/排障/发布见 [README](README.md) 与 [docs/](docs/)
 
@@ -65,7 +65,7 @@
 | AC6 | 反代兼容（任意 Host/X-Forwarded、不依赖 WS） | ✅ | E2E + 单测 |
 | AC7 | APK 门禁（包名/minSdk31/target36/arm64/非 testOnly/签名） | ✅ | `scripts/verify-apk.sh` + CI |
 | AC8 | App 关键流程真机可用 | ✅（用户真机验收） | adb 真机走查：登录/会话/聊天/审批/文件/图片/工作区/排队/权限/指令 |
-| AC9 | GitHub Actions → Release | ✅ | v0.1.1…v0.1.13 CI success + Release 资产 |
+| AC9 | GitHub Actions → Release | ✅ | v0.1.1…v0.1.14 CI success + Release 资产 |
 | AC10 | 凭据存储/权限/日志脱敏 | ✅ | 单测 + 权限 700/600 + 敏感信息扫描 |
 | AC11 | UI 简洁风 | ✅ | 真机截图（浅/深色、无多主题装饰） |
 | AC12 | 现有 8787/3080 未受影响 | ✅ | 前后 health/进程对比 |
