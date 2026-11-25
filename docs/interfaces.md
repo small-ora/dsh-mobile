@@ -457,3 +457,15 @@ Repository 新增：`fetchAttachment(sessionId, attachmentId): Pair<String,ByteA
   `result` 文本改为只取 text 块（不再出现 `[图片]` 占位）。
 - Markdown 图片解析覆盖表格行：表格单元格内 `![alt](src)` 会被抽取渲染，单元格保留 alt（空 alt → `[图片]`）。
 - 搜索不可用（DSH 未挂 `session-query`）为 UI 提示行为，无 HTTP 契约变化。
+
+### 9.7 未发布 App 契约补充（Markdown 表格 + 工作区路径链接）
+
+- `ui/md/Markdown.kt` 新增块级 `Block.Table(align: List<Align>, header: List<String>, rows: List<List<String>>)`
+  与 `enum Align { NONE, LEFT, CENTER, RIGHT }`：GFM 管道表格；`rows` 每行长度归一化为 `header.size`；
+  `align` 来自分隔行（`:---` / `---:` / `:---:`）；表格行内的 Markdown 图片仍按 9.6 规则抽取渲染。
+- 列宽：`Markdown.tableColumnWeights(header, rows)` 取每列「可见文本最大长度」并夹在 `6f..20f` 作为 Compose
+  `Modifier.weight` 权重；单元格内换行、不横向滚动（移动端排版选择，2026-11-25 人工确认）。
+- 行内链接：`http(s)://` / `mailto:` 渲染为可点击链接；**无 scheme 的相对路径**（如 `amazonData/src/A.kt`、
+  `<带 空格.md>`、`#anchor`）只渲染标签文本（不显示 URL、不可点击）；`javascript:` / `data:` / `file:` 等
+  危险 scheme 保持整段字面显示（安全约定不变）。
+- 无 HTTP/网关契约变化。
