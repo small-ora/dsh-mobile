@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | 网关 `gateway/` | ✅ 稳定 | 51 个 node:test；鉴权/限速/RPC/长轮询/文件/附件/反代信任 |
 | 插件 `plugin/` | ✅ 稳定 | `/mobile` 面板（状态/口令/设备管理/日志）、Cookie 交换、网关守护 |
-| App `app/android/` | ✅ 可用（真机验收） | Kotlin + Compose；173 个 JVM 单测；APK 门禁通过 |
+| App `app/android/` | ✅ 可用（真机验收） | Kotlin + Compose；174 个 JVM 单测；APK 门禁通过 |
 | CI | ✅ | tag `v*` → 单测 + APK 门禁 + Release |
 | 文档 | ✅ | README + 架构/接口/安全/排障/发布/状态 |
 
