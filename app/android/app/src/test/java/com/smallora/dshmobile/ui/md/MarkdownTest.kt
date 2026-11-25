@@ -70,6 +70,22 @@ class MarkdownTest {
     }
 
     @Test
+    fun relativePathLinks_renderLabelOnly() {
+        val runs = Markdown.inlineRuns(
+            "见 [ReturnReportStartupCatchUp.kt](amazonData/src/main/kotlin/com/wc/amazon/task/ReturnReportStartupCatchUp.kt) 与 " +
+                "[带空格](<docs/带 空格.md>) 与 [锚点](#section)",
+        )
+        assertEquals("见 ReturnReportStartupCatchUp.kt 与 带空格 与 锚点", runs.joinToString("") { it.text })
+        assertTrue(runs.none { it.link != null })
+        assertTrue(Markdown.isRelativePathUrl("amazonData/src/A.kt"))
+        assertTrue(Markdown.isRelativePathUrl("./README.md"))
+        assertFalse(Markdown.isRelativePathUrl("javascript:alert(1)"))
+        assertFalse(Markdown.isRelativePathUrl("https://example.com"))
+        assertFalse(Markdown.isRelativePathUrl("mailto:a@b.com"))
+        assertFalse(Markdown.isRelativePathUrl("//example.com/x"))
+    }
+
+    @Test
     fun codeBlock_preservesRawContentAndLanguage() {
         val source = "```kotlin\nval x = \"<script>\"\nprintln(x)\n```"
         val blocks = Markdown.parseMarkdown(source)

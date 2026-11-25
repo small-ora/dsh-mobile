@@ -54,9 +54,11 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
@@ -479,6 +481,14 @@ private fun MarkdownChunkView(
                     color = colors.outlineVariant,
                     modifier = Modifier.padding(vertical = 2.dp),
                 )
+
+                is Markdown.Block.Table -> TableBlockView(
+                    table = block,
+                    compact = compact,
+                    bodyColor = bodyColor,
+                    linkColor = linkColor,
+                    codeBackground = codeBackground,
+                )
             }
         }
         // 图片渲染在所属段落之后（多图换行）
@@ -487,6 +497,102 @@ private fun MarkdownChunkView(
                 images = chunk.images,
                 env = imageEnv,
                 modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+    }
+}
+
+/**
+ * GFM 管道表格：圆角外框 + 表头浅底 + 行列分隔线；列宽按内容比例分配（[Markdown.tableColumnWeights]），
+ * 单元格内换行、不横向滚动（移动端可读性优先，用户 2026-11-25 选定）。
+ */
+@Composable
+private fun TableBlockView(
+    table: Markdown.Block.Table,
+    compact: Boolean,
+    bodyColor: Color,
+    linkColor: Color,
+    codeBackground: Color,
+) {
+    val colors = MaterialTheme.colorScheme
+    val typography = MaterialTheme.typography
+    val cellStyle = if (compact) typography.bodySmall else typography.bodyMedium
+    val weights = remember(table) { Markdown.tableColumnWeights(table.header, table.rows) }
+    val headerCells = remember(table.header, linkColor, codeBackground) {
+        table.header.map { Markdown.inlineAnnotated(it, linkColor = linkColor, codeBackground = codeBackground) }
+    }
+    val bodyCells = remember(table.rows, linkColor, codeBackground) {
+        table.rows.map { row ->
+            row.map { Markdown.inlineAnnotated(it, linkColor = linkColor, codeBackground = codeBackground) }
+        }
+    }
+    val shape = RoundedCornerShape(8.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .border(1.dp, colors.outlineVariant, shape),
+    ) {
+        TableRowView(
+            cells = headerCells,
+            weights = weights,
+            align = table.align,
+            style = cellStyle,
+            color = bodyColor,
+            header = true,
+        )
+        bodyCells.forEach { cells ->
+            HorizontalDivider(thickness = 1.dp, color = colors.outlineVariant)
+            TableRowView(
+                cells = cells,
+                weights = weights,
+                align = table.align,
+                style = cellStyle,
+                color = bodyColor,
+                header = false,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TableRowView(
+    cells: List<AnnotatedString>,
+    weights: List<Float>,
+    align: List<Markdown.Align>,
+    style: TextStyle,
+    color: Color,
+    header: Boolean,
+) {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .background(if (header) colors.surfaceVariant else Color.Transparent),
+    ) {
+        cells.forEachIndexed { index, text ->
+            if (index > 0) {
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .fillMaxHeight()
+                        .background(colors.outlineVariant),
+                )
+            }
+            Text(
+                text = text,
+                style = if (header) style.copy(fontWeight = FontWeight.SemiBold) else style,
+                color = color,
+                textAlign = when (align.getOrElse(index) { Markdown.Align.NONE }) {
+                    Markdown.Align.LEFT -> TextAlign.Start
+                    Markdown.Align.CENTER -> TextAlign.Center
+                    Markdown.Align.RIGHT -> TextAlign.End
+                    Markdown.Align.NONE -> TextAlign.Start
+                },
+                modifier = Modifier
+                    .weight(weights.getOrElse(index) { 1f })
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
             )
         }
     }
