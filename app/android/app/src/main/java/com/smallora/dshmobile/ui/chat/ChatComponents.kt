@@ -64,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.smallora.dshmobile.core.ChatItem
 import com.smallora.dshmobile.core.CommandInfo
 import com.smallora.dshmobile.core.Goal
@@ -516,7 +517,8 @@ private fun TableBlockView(
 ) {
     val colors = MaterialTheme.colorScheme
     val typography = MaterialTheme.typography
-    val cellStyle = if (compact) typography.bodySmall else typography.bodyMedium
+    // 表格信息密度高：过程折叠里用 bodySmall，正文用 13sp（比正文 bodyLarge 小一档，减少长路径换行）
+    val cellStyle = if (compact) typography.bodySmall else typography.bodySmall.copy(fontSize = 13.sp)
     val weights = remember(table) { Markdown.tableColumnWeights(table.header, table.rows) }
     val headerCells = remember(table.header, linkColor, codeBackground) {
         table.header.map { Markdown.inlineAnnotated(it, linkColor = linkColor, codeBackground = codeBackground) }
