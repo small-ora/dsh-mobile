@@ -83,6 +83,14 @@ class MarkdownTest {
         assertFalse(Markdown.isRelativePathUrl("https://example.com"))
         assertFalse(Markdown.isRelativePathUrl("mailto:a@b.com"))
         assertFalse(Markdown.isRelativePathUrl("//example.com/x"))
+        // 非路径形态的括号目标保持整段字面，避免把「见下节」这类内容吞掉
+        assertFalse(Markdown.isRelativePathUrl("见下节"))
+        assertFalse(Markdown.isRelativePathUrl("see appendix"))
+        val nonPath = Markdown.inlineRuns("[详见](见下节) 与 [note](see appendix)")
+        assertEquals("[详见](见下节) 与 [note](see appendix)", nonPath.joinToString("") { it.text })
+        assertTrue(nonPath.none { it.link != null })
+        // 文件名形态（无目录分隔符）仍按相对路径标签化
+        assertTrue(Markdown.isRelativePathUrl("README.md"))
     }
 
     @Test

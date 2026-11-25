@@ -17,13 +17,14 @@ import androidx.compose.ui.text.withStyle
  * 安全 Markdown → AnnotatedString（DeepSeek 简洁风，只做纯排版，不执行任何 HTML/脚本）。
  *
  * 解析分两层：
- *  1. [parseMarkdown]：块级结构（标题 / 段落 / 代码块 / 列表 / 引用 / 分隔线），纯 Kotlin 数据，可 JVM 单测。
+ *  1. [parseMarkdown]：块级结构（标题 / 段落 / 代码块 / 列表 / 引用 / 分隔线 / GFM 管道表格），纯 Kotlin 数据，可 JVM 单测。
  *  2. [inlineRuns] / [inlineAnnotated]：行内格式（**粗体**、*斜体*、`代码`、[链接](url)）。
  *
  * 安全约定：
  *  - 行内文本进入解析前先用 [escapeHtml] 转义 `& < > " '`，因此文本里的 HTML 标签永远只以字面量出现，
  *    不会被当成标记解析（Compose 端不使用 AnnotatedString.fromHtml，没有任何 HTML 执行路径）。
- *  - 链接只允许 `http://` / `https://` / `mailto:`；`javascript:`、`data:`、`file:` 等一律按普通文本渲染。
+ *  - 链接只允许 `http://` / `https://` / `mailto:` 渲染成可点击链接；工作区相对路径（路径形态）只显示标签文本
+ *    （丢弃 URL）；`javascript:`、`data:`、`file:` 等危险 scheme 一律按普通文本渲染。
  *  - 代码块内容原样保留（不做 Markdown 解析），仅用于等宽展示与复制。
  */
 object Markdown {
@@ -251,6 +252,12 @@ object Markdown {
                 cell.append(c)
                 i++
                 while (i < source.length && source[i] != '`') {
+                    // GFM：表格单元格里 `\|` 即使在行内 code 内也还原为字面竖线（且不切分单元格）
+                    if (source[i] == '\\' && i + 1 < source.length && source[i + 1] == '|') {
+                        cell.append('|')
+                        i += 2
+                        continue
+                    }
                     cell.append(source[i])
                     i++
                 }
@@ -522,7 +529,10 @@ object Markdown {
         val value = url.trim()
         if (value.isEmpty()) return false
         if (value.startsWith("//")) return false
-        return !SCHEME_PREFIX.containsMatchIn(value)
+        if (SCHEME_PREFIX.containsMatchIn(value)) return false
+        // 仅「路径形态」才标签化：含目录分隔符 / `#锚点` / 形如 `README.md` 的文件名；
+        // `[详见](见下节)`、`[note](see appendix)` 这类普通文字目标保持整段字面，避免吞掉括号内内容。
+        return value.contains('/') || value.startsWith("#") || PATH_LIKE.matches(value)
     }
 
     /** 去掉 `[label](<path with space>)` 的尖括号包裹。 */
@@ -535,4 +545,5 @@ object Markdown {
     }
 
     private val SCHEME_PREFIX = Regex("^[A-Za-z][A-Za-z0-9+.-]*:")
+    private val PATH_LIKE = Regex("^[\\w.@%+~-]+\\.[A-Za-z0-9]{1,8}(?:[#?].*)?$")
 }

@@ -465,7 +465,7 @@ Repository 新增：`fetchAttachment(sessionId, attachmentId): Pair<String,ByteA
   `align` 来自分隔行（`:---` / `---:` / `:---:`）；表格行内的 Markdown 图片仍按 9.6 规则抽取渲染。
 - 列宽：`Markdown.tableColumnWeights(header, rows)` 取每列「可见文本最大长度」并夹在 `6f..20f` 作为 Compose
   `Modifier.weight` 权重；单元格内换行、不横向滚动（移动端排版选择，2026-11-25 人工确认）。
-- 行内链接：`http(s)://` / `mailto:` 渲染为可点击链接；**无 scheme 的相对路径**（如 `amazonData/src/A.kt`、
-  `<带 空格.md>`、`#anchor`）只渲染标签文本（不显示 URL、不可点击）；`javascript:` / `data:` / `file:` 等
-  危险 scheme 保持整段字面显示（安全约定不变）。
+- 行内链接：`http(s)://` / `mailto:` 渲染为可点击链接；**路径形态**的相对目标（含 `/`，如 `amazonData/src/A.kt`、
+  `<带 空格.md>`；`#anchor`；或 `README.md` 这类文件名）只渲染标签文本（不显示 URL、不可点击）；
+  `javascript:` / `data:` / `file:` 等危险 scheme 与非路径文字目标（如 `[详见](见下节)`）保持整段字面显示（安全约定不变）。
 - 无 HTTP/网关契约变化。

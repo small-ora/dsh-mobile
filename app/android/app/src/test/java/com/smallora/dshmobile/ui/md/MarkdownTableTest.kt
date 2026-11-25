@@ -65,6 +65,17 @@ class MarkdownTableTest {
         val table = tables(raw).single()
         assertEquals(listOf("**粗体**", "`code()`"), table.header)
         assertEquals(listOf("*斜体*", "3"), table.rows[0])
+
+        // 单元格内的行内格式要在渲染时真正生效（而不是原样输出星号/反引号）
+        val bold = Markdown.inlineRuns(table.header[0])
+        assertEquals("粗体", bold.joinToString("") { it.text })
+        assertTrue(bold.any { it.style == Markdown.Style.BOLD })
+        val code = Markdown.inlineRuns(table.header[1])
+        assertEquals("code()", code.joinToString("") { it.text })
+        assertTrue(code.any { it.style == Markdown.Style.CODE })
+        val italic = Markdown.inlineRuns(table.rows[0][0])
+        assertEquals("斜体", italic.joinToString("") { it.text })
+        assertTrue(italic.any { it.style == Markdown.Style.ITALIC })
     }
 
     @Test
@@ -74,6 +85,17 @@ class MarkdownTableTest {
         assertEquals(listOf("a | b", "`x | y`"), table.header)
         assertEquals(1, table.rows.size)
         assertEquals(listOf("1", "2"), table.rows[0])
+    }
+
+    @Test
+    fun escapedPipeInsideCodeSpanIsUnescapedButDoesNotSplit() {
+        val raw = "| a | `x \\| y` |\n| --- | --- |\n| 1 \\| 2 | `p \\| q` |"
+        val table = tables(raw).single()
+        assertEquals(listOf("a", "`x | y`"), table.header)
+        assertEquals(listOf("1 | 2", "`p | q`"), table.rows[0])
+        val cellRuns = Markdown.inlineRuns(table.header[1])
+        assertEquals("x | y", cellRuns.joinToString("") { it.text })
+        assertTrue(cellRuns.all { it.style == Markdown.Style.CODE })
     }
 
     @Test
@@ -100,12 +122,27 @@ class MarkdownTableTest {
 
     @Test
     fun tableEndsAtNonTableBlockStart() {
-        val blocks = Markdown.parseMarkdown(
-            "| a | b |\n| --- | --- |\n| 1 | 2 |\n# 标题",
-        )
-        assertEquals(2, blocks.size)
-        assertTrue(blocks[0] is Markdown.Block.Table)
-        assertEquals(1, (blocks[1] as Markdown.Block.Heading).level)
+        val heading = Markdown.parseMarkdown("| a | b |\n| --- | --- |\n| 1 | 2 |\n# 标题")
+        assertEquals(2, heading.size)
+        assertTrue(heading[0] is Markdown.Block.Table)
+        assertEquals(1, (heading[1] as Markdown.Block.Heading).level)
+
+        // 表格后的列表 / 引用 / 围栏 / 无竖线段落都不能被吞进表格
+        val list = Markdown.parseMarkdown("| a | b |\n| --- | --- |\n| 1 | 2 |\n- 列表项")
+        assertTrue(list[0] is Markdown.Block.Table)
+        assertEquals(1, list.filterIsInstance<Markdown.Block.ListItem>().size)
+
+        val quote = Markdown.parseMarkdown("| a | b |\n| --- | --- |\n| 1 | 2 |\n> 引用")
+        assertTrue(quote[0] is Markdown.Block.Table)
+        assertEquals("引用", (quote[1] as Markdown.Block.Quote).text)
+
+        val fence = Markdown.parseMarkdown("| a | b |\n| --- | --- |\n| 1 | 2 |\n```\ncode\n```")
+        assertTrue(fence[0] is Markdown.Block.Table)
+        assertEquals("code", (fence[1] as Markdown.Block.CodeBlock).code)
+
+        val plain = Markdown.parseMarkdown("| a | b |\n| --- | --- |\n| 1 | 2 |\n普通段落")
+        assertTrue(plain[0] is Markdown.Block.Table)
+        assertEquals("普通段落", (plain[1] as Markdown.Block.Paragraph).text)
     }
 
     @Test

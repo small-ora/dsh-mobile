@@ -11,7 +11,7 @@
 
 **修复：工作区相对路径链接整段语法外露**
 - 根因：行内链接只接受 `http(s)://` / `mailto:`；`[ReturnReportStartupCatchUp.kt](amazonData/src/main/kotlin/...)` 这类工作区相对路径不满足安全 scheme，整段回退成字面文本。
-- 修复：无 scheme 的相对路径链接（含 `<带空格路径>`、`#锚点`）只显示可读标签，不显示也不点击原始路径；危险 scheme（`javascript:` / `data:` / `file:`）仍按字面显示，`http(s)` / `mailto` 仍可点击。
+- 修复：**路径形态**的相对路径链接（含 `/` 的路径、`<带空格路径>`、`#锚点`、`README.md` 这类文件名）只显示可读标签，不显示也不点击原始路径；`javascript:` / `data:` / `file:` 等危险 scheme 与非路径文字目标（如 `[详见](见下节)`）仍按字面显示，`http(s)` / `mailto` 仍可点击。
 - 网关 / 插件无改动；APK 版本号未 bump（是否发布由维护者决定）。
 
 ## v0.1.13（2026-11-22）
